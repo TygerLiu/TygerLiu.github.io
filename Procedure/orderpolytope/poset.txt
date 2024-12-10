@@ -1,0 +1,2728 @@
+#
+# Posets package: version 2.4, vanilla edition.
+# This version/edition has been tested on
+#   Maple V R3--R5, Maple 6, 7, 9, and 11.
+#
+# This is *not* a Maple worksheet.
+#
+# After loading this file during a Maple session, each function in the
+# package can be accessed using the calling sequence
+#
+#   posets[<functionname>](<arguments>).
+#
+# In order to use package functions in the abbreviated form
+#
+#   <functionname>(<arguments>),
+#
+# run the command 'withposets()' after loading this file. If there is a
+# conflict between the names of one of these functions and another name
+# in the same session, a warning is printed.
+#
+# In order to use the abbreviated form for a subset of the procedures in
+# the package, run the command
+#
+#   withposets(<name1>,<name2>,...).
+#
+# For an introduction, see
+#   http://www.math.lsa.umich.edu/~jrs/software/posets.ps
+# For documentation on the individual functions, see
+#   http://www.math.lsa.umich.edu/~jrs/software/posetshelp.html
+#
+# Copyright (c) 2009 by John R. Stembridge
+#
+#########################################################################
+#
+# The default choices for the edge and vertex colors used by 'plot_poset':
+#
+`posets/default`['ecolor']:='red':
+`posets/default`['vcolor']:='white':
+if `+`(0)=0 then  # in Maple >= V.4, plots have a white background
+  `posets/default`['vcolor']:='black' fi:
+#
+posets:=table():
+if signum(0)=0 then  #needed for Maple V.{3,4,5}
+  unprotect(`&*`,`&+`) fi;
+#
+# assign short names, printing warnings if conflicts occur.
+#
+withposets:=proc() local install,f;
+  install:=proc(x)
+    if not assigned(posets[x]) then
+      ERROR(cat(x,` is not a top level function in posets`))
+    elif eval(x)<>eval(posets[x]) then
+      if x='W' or x='atomic' or x='lattice' then unprotect(x) fi;
+      if assigned(x) then printf(`Warning: new definition for  %a\n`,x) fi;
+      assign(x,posets[x])
+    fi; x
+  end;
+  if nargs>0 then map(install,[args]) else
+    f:=proc() map(op,[args]) end; # hack the names w/o full evaluation!
+    map(install,f(indices(posets)))
+  fi
+end:
+#
+#
+# antichains(P,X) produces a lexordered list of antichains in a poset P
+#  with vertex set X.
+# antichains(P,n) does the same, using X={1,...,n}.
+# antichains(P) does the same, assuming that P has no isolated vertices.
+# In the lexorder, antichain A precedes antichain B if the "last" member
+#  of the symmetric difference of A and B occurs in B. Here, "last" is
+#  determined by some chosen linear extension of the vertex set of P.
+# To force a particular choice of linear extension, provide X as a *list*
+#  of vertices in the desired order.
+# Optionally, if the final argument (the 2nd or 3rd) is:
+#  -the name 'max', the result is a lexordered list of *maximal* antichains
+#  -any other name, such as q, the result is the generating series for
+#   antichains (i.e., the sum of q^nops(A) for all antichains A)
+#  -a range, such as 2..7, the result is a lexordered list of antichains
+#   in P with sizes in this range.
+#
+`posets/antichains`:=proc(P) local Q,X,n,lb,ub,q;
+  lb:=NULL; q:=NULL; n:=nargs;
+  if type(args[n],'range') then
+    lb:=op(1,args[n]); ub:=op(2,args[n]); n:=n-1
+  elif type(args[n],'name') then
+    q:=args[n]; n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=2 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](args[1..n])) fi;
+  if lb=NULL then lb:=0; ub:=nops(X)
+    elif nops(X)<lb or ub<0 or ub<lb then RETURN([]) fi;
+  Q:=posets['closure'](P,X);
+  if q=NULL then `posets/antichains/list`(Q,X,lb,ub)
+    elif q='max' then `posets/antichains/max`(Q,X)
+    else `posets/antichains/series`(Q,X,q) fi
+end:
+#
+# Either an antichain omits the last member of X, or it does not...
+# The input is always kept sane:  nops(X) >= lb <= ub >= 0.
+#
+`posets/antichains/list`:=proc(Q,X,lb,ub) local n,mx,P,Y,L;
+  n:=nops(X);
+  if n=0 then RETURN([{}])
+    elif n-1<lb then
+      if nops(Q)=0 and n<=ub then RETURN([{op(X)}]) else RETURN([]) fi
+    elif ub<1 then
+      if lb<=0 then RETURN([{}]) else RETURN([]) fi
+    elif n=1 then RETURN([{},{op(X)}]) fi;
+  mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  L:=procname(P,Y,lb,ub);
+  Y:=map(proc(x,y,Z) if not member([x,y],Z) then x fi end,Y,mx,Q);
+  if nops(Y)<lb-1 then RETURN(L) elif nops(Y)<n-1 then
+    P:=map(proc(e,Z) if member(e[1],Z) then e fi end,P,Y) fi;
+  [op(L),op(map((x,y)->{op(x),y},procname(P,Y,lb-1,ub-1),mx))]
+end:
+#
+# For a series, we can exit early when Q is empty.
+#
+`posets/antichains/series`:=proc(Q,X,q) local n,mx,P,Y,f;
+  if nops(Q)=0 then RETURN(expand((1+q)^nops(X))) fi;
+  n:=nops(X); mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  f:=procname(P,Y,q);
+  Y:=map(proc(x,y,Z) if not member([x,y],Z) then x fi end,Y,mx,Q);
+  if nops(Y)=n-1 then f+expand(q*f) else
+    P:=map(proc(e,Z) if member(e[1],Z) then e fi end,P,Y);
+    f+expand(q*procname(P,Y,q))
+  fi
+end:
+#
+`posets/antichains/max`:=proc(Q,X) local n,mx,P,L,Y,L2;
+  if nops(Q)=0 then RETURN([{op(X)}]) fi;
+  n:=nops(X); mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  L:=procname(P,Y);
+  Y:=map(proc(x,y,Z) if not member([x,y],Z) then x fi end,Y,mx,Q);
+  if nops(Y)=n-1 then
+    map((x,y)->{op(x),y},L,mx)
+  else
+    P:=map(proc(e,Z) if member(e[1],Z) then e fi end,P,Y);
+    L2:=procname(P,Y);
+    L:=map(proc(x,Z) if not member(x,Z) then x fi end,L,L2);
+    [op(L),op(map((x,y)->{op(x),y},L2,mx))]
+  fi
+end:
+#
+# atomic(L) returns true or false according to whether the lattice L
+#  is atomic; i.e., whether every element is the join of atoms.
+# The procedure does *not* test whether L is a lattice.
+# The criterion: L is atomic iff atoms are the only elements that
+# cover only one element.
+#
+`posets/atomic`:=proc(L) local X,x,cov;
+  X:=map(op,L); cov:=`posets/coversets`(L,X);
+  for x in X do
+    if nops(cov[x])=1 and cov[cov[x][1]]<>{} then RETURN(false) fi
+  od; true
+end:
+#
+# Given a directed graph G with vertex set X, autgroup(G,X) returns a
+#  list of generators for the automorphism group of G. Each generator
+#  is encoded by a set of equations of the form {x1=y1,x2=y2,...},
+#  where X={x1,x2,...}={y1,y2,...}.
+# autgroup(G,n) does the same, using X={1,...,n}.
+# autgroup(G) does the same, assuming G has no isolated points.
+#
+# Undocumented: we also allow G to be a vertex-colored digraph, in which
+# case the return value is a list of generators for the group of color-
+# preserving automorphisms of G. In this case, args[2] should be the
+# partition of X into color classes (a list of sets).
+#
+# If the final argument is 'permgroup', return a permgroup(...) data
+#  structure as in Maple's group package (vertex set must be {1,...,n}).
+# If the final argument is 'gap', printf a sequence of statements
+#  that can be pasted into a gap session.
+#
+`posets/autgroup`:=proc(P) local mu,X,pg,n;
+  n:=nargs; if type(args[n],'name') then n:=n-1 fi; 
+  if n=1 then mu:=[map(op,P)]
+    elif type(args[2],'list(set)') then mu:=args[2]
+    elif type(args[2],'integer') then mu:=[{$1..args[2]}]
+    else mu:=[args[2]] fi;
+  pg:=`posets/autgroup/main`(P,mu); X:=map(op,mu);
+  if nargs=n then pg
+    elif {op(X)}<>{$1..nops(X)} then
+      ERROR(`cannot export unless vertex set is {1,...,n} for some n`)
+    elif args[nargs]='permgroup' then
+      permgroup(nops(X),map(`posets/autgroup/cyc`,{op(pg)}))
+    elif args[nargs]='gap' then `posets/autgroup/gap`(pg)
+    else ERROR(`invalid arguments`)
+  fi
+end:
+#
+# The main work is done here, recursively.
+#
+`posets/autgroup/main`:=proc(G) local mu,i,k,pg,B;
+  mu:=`posets/fastdisc`(args);
+  for k to nops(mu) while nops(mu[k])=1 do od;
+  if k>nops(mu) then RETURN([]) fi;
+  i:=mu[k][1]; B:=subsop(1=NULL,mu[k]);
+  mu:=subsop(k=({i},B),mu);
+  pg:=procname(G,mu);
+  `posets/buildgrp`(pg,G,mu,k);
+end:
+#
+# decompose pi into disjoint cycles
+#
+`posets/autgroup/cyc`:=proc(pi) local alive,mu,i,c;
+  alive:=map(x->op(1,x),pi); mu:=NULL;
+  while nops(alive)>0 do
+    i:=alive[1]; c:=i; i:=subs(pi,i);
+    while i<>alive[1] do c:=c,i; i:=subs(pi,i) od;
+    mu:=mu,[c]; alive:=alive minus {c};
+  od; [mu]
+end:
+#
+# export a pg to gap
+#
+`posets/autgroup/gap`:=proc(pg) local pi,i,n;
+  printf(`\n`); n:=nops(pg);
+  for i to n do
+    pi:=`posets/autgroup/cyc`(pg[i]);
+    pi:=map(convert,pi,'string');
+    pi:=map(y->cat(`(`,substring(y,2..length(y)-1),`)`),pi);
+    printf(`g%d:=%s;\n`,i,cat(op(pi)));
+  od;
+  if n=0 then printf(`G:=Group(());\n`) else
+    printf(`G:=Group(g1%s);\n`,cat(seq(op([`,g`,i]),i=2..n))) fi;
+  printf(`\n`); # V.3 cannot handle consecutive newlines
+end:
+#
+# Suppose pg is a list of generators for the automorphism group A of a
+# vertex-colored digraph (G,mu) in which block k is a singleton {i}.
+# If mu' is the vertex partition obtained by merging blocks k and k+1,
+# then A is the stabilizer of i in Aut(G,mu'), and we can determine a
+# full set of generators for Aut(G,mu') by using calls to 'cisom' to
+# determine the Aut(G,mu')-orbit of i.
+#
+# The return value is a list of generators for Aut(G,mu').
+# Currently used by both 'autgroup' and 'canorder'.
+# Errors occur if block k is not a singleton or block k+1 does not exist.
+#
+`posets/buildgrp`:=proc(pg,G,mu,k) local nu,pg0,pi,alive,i;
+  i:=op(mu[k]); alive:=mu[k+1]; pg0:=op(pg);
+  while nops(alive)>0 do
+    nu:=subs({i=alive[1],alive[1]=i},mu);
+    pi:=`posets/cisom`(G,mu,G,nu);
+    if pi<>NULL then pg0:=pg0,map(x->if not x then x fi,pi) fi;
+    alive:=alive minus `posets/orbit`([pg0],alive[1])
+  od; [pg0]
+end:
+#
+# Given a directed graph G with vertex set X, canon(G,X) finds a 
+# canonical relabeling of G. The vertex set of the relabeled graph
+# will be 1,...,n for some n, and another graph (H,Y) will be isomorphic
+# to (G,X) if and only if canon(G,X)=canon(H,Y).
+#
+# If G is acyclic, and the last argument is 'natural', produce a canonical
+# labeling that is "natural" (i.e., if [i,j] is an edge, then i<j).
+# Note we do not test whether G is acyclic in this case.
+# If you try it on a G with cycles, you're on your own.
+#
+# An undocumented feature: we also allow G to be a vertex-colored digraph,
+# with args[2] the partition of X into color classes (a list of sets).
+#
+# Might be nicer to return a poset "structure".
+#
+`posets/canon`:=proc(P) local Q,mu,pi,i,n;
+  n:=nargs; if args[n]='natural' then n:=n-1 fi;
+  if n=1 then mu:=[map(op,P)]
+    elif type(args[2],'list(set)') then mu:=args[2]
+    elif type(args[2],'integer') then mu:=[{$1..args[2]}]
+    else mu:=[args[2]]
+  fi;
+  Q:=`posets/canorder`(P,mu,'all');
+  if nargs=n then Q[1] else
+    pi:=posets['filter'](Q[1],nops(Q[2]));
+    pi:=map(x->op(sort([op(x)])),pi);
+    subs({seq(pi[i]=i,i=1..nops(pi))},Q[1])
+  fi;
+end:
+#
+# Canonically order the vertices of a colored directed graph.
+# The input should be (G,nu) or (G,nu,flag), where G is a set of edges
+# and nu is a vertex partition (a list of sets).
+#
+# In the second form, the return value is a triple [Gc, w, pg], where
+# Gc is the canonical relabeling of G,
+#  w is the canonical ordering of its vertices, and
+# pg is a list of generators for the autgroup of (G,nu).
+#
+# Without a flag, we simply return the canonical ordering w.
+# (This is for legacy reasons: I have code outside the package that
+# depends on this syntax. It may make sense to dump this option in
+# the future, especially if we revisit the tie-breaking rules.)
+#
+# The strategy is to use mu=fastdisc(G,nu) as a first approximation to the
+# canonical ordering. Working on the first non-singleton block B of mu,
+# we break B into Aut(G,nu)-orbits O1, O2,... and decide which one should
+# be considered "first". The decision is made by selecting a point from
+# each orbit, color-isolating it, and then recursively generating the
+# canonical ordering of this color-refinement. We get one candidate
+# ordering w_i for each orbit O_i, and from these, we use a lexorder
+# tie-breaker to decide which one is best for (G,nu).
+#
+# We could be sloppy about the orbit partition--if we select more than
+# one point from an O_i, then the corresponding canonical relabelings are
+# harmlessly identical, and even yield automorphisms of (G,nu) as a bonus.
+# However, in terms of costliness, cisom << autgroup << canorder, so it is
+# better to unsloppily minimize the recursive calls to canorder.
+#
+`posets/canorder`:=proc(G) local mu,k,i,Gc,Hc,alive,pg,nu;
+  mu:=`posets/fastdisc`(G,args[2]);
+  for k to nops(mu) while nops(mu[k])=1 do od;
+  if k>nops(mu) then mu:=map(op,mu);
+    Gc:=[subs({seq(mu[i]=i,i=1..nops(mu))},G),mu,[]]
+  else
+    i:=mu[k][1]; alive:=subsop(1=NULL,mu[k]);
+    mu:=subsop(k=({i},alive),mu);
+    Gc:=procname(G,mu,0);
+    pg:=`posets/buildgrp`(Gc[3],G,mu,k);
+    alive:=alive minus `posets/orbit`(pg,i);
+    while nops(alive)>0 do
+      nu:=subs({i=alive[1],alive[1]=i},mu);
+      Hc:=procname(G,nu,0);
+      if `posets/canorder/prefer`(Hc[1],Gc[1]) then Gc:=Hc fi;
+      alive:=alive minus `posets/orbit`(pg,alive[1])
+    od;
+    Gc:=subsop(3=pg,Gc)
+  fi;
+  if nargs>2 then Gc else Gc[2] fi
+end:
+#
+# Do we prefer to replace the canonical labeling G with H?
+# Might be worth looking for alternatives that produce nicer results.
+#
+`posets/canorder/prefer`:=proc(H,G) local fG,fH;
+  fG:=`posets/canorder/first`(G minus H);
+  fH:=`posets/canorder/first`(H minus G);
+  evalb(fH[1]<fG[1] or (fH[1]=fG[1] and fH[2]<fG[2]))
+end:
+#
+# From edges [i,j] of A, first minimize max(i,j), and
+# among those, minimize j-i. (We know that i,j are posint).
+#
+`posets/canorder/first`:=proc(A) local f,u,m,d;
+ f:=[infinity,0];
+ for u in A do
+   m:=max(u[1],u[2]);
+   if m<f[1] then f:=[m,u[2]-u[1]]
+     elif m=f[1] then d:=u[2]-u[1];
+       if d<f[2] then f:=[m,d] fi
+   fi
+ od; f
+end: 
+#
+# chain(n) returns (the cover relation for) an n-element chain.
+#
+`posets/chain`:=proc(n) local i; 
+  if not type(n,'posint') then
+    ERROR(`first argument must be a positive integer`)
+  elif n=1 then {},1
+  else {seq([i,i+1],i=1..n-1)} fi
+end:
+#
+# chains(P,X) produces a lexordered list of chains in a poset P with
+#  vertex set X.
+# chains(P,n) does the same, using X={1,...,n}.
+# chains(P) does the same, assuming that P has no isolated vertices.
+# In the lexorder, chain A precedes chain B if the "last" member of the
+#  symmetric difference of A and B occurs in B. Here, "last" is determined
+#  by some chosen linear extension of the vertex set of P.
+# To force a particular choice of linear extension, provide X as a *list*
+#  of vertices in the desired order.
+# Optionally, if the final argument (the 2nd or 3rd) is:
+#  -the name 'max', the result is a lexordered list of *maximal* chains
+#  -any other name, such as q, the result is the generating series for
+#   chain sizes (not lengths) (i.e., the sum of q^nops(C) for all chains C)
+#  -a range, such as 2..7, the result is a lexordered list of chains in P
+#   with sizes in this range.
+#
+`posets/chains`:=proc(P) local Q,X,Y,n,lb,ub,down,i,q;
+  lb:=NULL; q:=NULL; n:=nargs;
+  if type(args[n],'range') then
+    lb:=op(1,args[n]); ub:=op(2,args[n]); n:=n-1
+  elif type(args[n],'name') then
+    q:=args[n]; n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=2 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](args[1..n])) fi;
+  if q='max' then
+    n:=nops(X); Y:={$1..n};
+    Q:=subs({seq(X[i]=i,i=1..n)},P);
+    down:=`posets/coversets`(Q,Y);
+    down[n+1]:=Y minus map(e->e[1],Q);
+    for i to n+1 do down[i]:=sort([op(down[i])]) od;
+    Q:=`posets/chains/max`(n+1,down);
+    subs({seq(i=X[i],i=1..n),n+1=NULL},Q)
+  elif q<>NULL then
+    `posets/chains/series`(P,X,q)
+  else
+    if lb=NULL then lb:=0; ub:=nops(X)
+      elif nops(X)<lb or ub<0 or ub<lb then RETURN([]) fi;
+    Q:=posets['closure'](P,X);
+    `posets/chains/list`(Q,X,lb,ub)
+  fi
+end:
+#
+# Either a chain omits the last member of X, or it does not...
+# The input is always kept sane:  nops(X) >= lb <= ub >= 0.
+#
+`posets/chains/list`:=proc(Q,X,lb,ub) local n,mx,P,Y,L;
+  n:=nops(X);
+  if n=0 then RETURN([[]])
+    elif n-1<lb then
+      if n<=ub and 2*nops(Q)=n*(n-1) then RETURN([X]) else RETURN([]) fi
+    elif ub<1 then
+      if lb<=0 then RETURN([[]]) else RETURN([]) fi
+    elif n=1 then RETURN([[],X]) fi;
+  mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  L:=procname(P,Y,lb,ub);
+  Y:=map(proc(x,y,Z) if member([x,y],Z) then x fi end,Y,mx,Q);
+  if nops(Y)<lb-1 then RETURN(L) elif nops(Y)<n-1 then
+    P:=map(proc(e,Z) if member(e[2],Z) then e fi end,P,Y) fi;
+  [op(L),op(map((x,y)->[op(x),y],procname(P,Y,lb-1,ub-1),mx))]
+end:
+#
+# For the series, there is an easy one-pass approach.
+# A seq() would be faster, but less space-efficient than g:=g+f[y].
+#
+`posets/chains/series`:=proc(P,X,q) local f,g,f0,x,y;
+  f:=`posets/downsets`(P,X); f0:=1;
+  for x in X do
+    g:=1; for y in f[x] do g:=g+f[y] od;
+    f[x]:=expand(q*g); f0:=f0+f[x]
+  od; f0
+end:
+#
+`posets/chains/max`:=proc(x,down) local new;
+  if nops(down[x])=0 then [[x]] else
+    new:=map(op,map(procname,down[x],down));
+    map((c,y)->[op(c),y],new,x)
+  fi
+end:
+#
+# char_poly(P,z) returns the characteristic polynomial of a poset P with
+#  a minimum element. char_poly(P,X,z) and char_poly(P,n,z) are similar.
+# P should also be ranked, although we don't test for this.
+# Implementation note: the seq construction uses slightly more space than
+#  the obvious "g:=g-up[y]" construction, but on large posets (n>100),
+#  is faster by a factor of 2 to 5 depending on Maple version.
+#
+`posets/char_poly`:=proc(P) local i,F,x,y,f,up;
+  if nargs>3 then ERROR(`invalid arguments`) fi;
+  F:=posets['filter'](args[1..nargs-1]); f:=nops(F);
+  if f=0 or nops(F[1])>1 then
+    ERROR(`the poset lacks a minimum element`) fi;
+  F:=[seq(F[-i],i=-f..-1)];
+  up:=`posets/downsets`(posets['dual'](P),map(op,F));
+  for i to f do for x in F[i] do
+    up[x]:=args[nargs]^(i-1)-convert([seq(up[y],y=up[x])],`+`)
+  od od; up[x]
+end:
+#
+# A recursive isomorphism tester for vertex-colored directed graphs.
+# Calling sequence: `posets/cisom`(H,nu,G,mu);
+# The value NULL is returned if there is no isomorphism; otherwise,
+# the return value *is* the isomorphism.
+#
+# We try five things in order:
+#  1. Do the graphs have incompatible vertex partitions?
+#  2. Is there a lucky isomorphism available immediately?
+# Next use `posets/separate` to  repartition the vertices of G and H.
+#  3. Do G and H have different separation invariants? 
+#  4. Was the repartitioning non-trivial? (If so, recurse.)
+# At this point, all singletons must have matching edges, and there must
+# be one or more blocks of size >=2. So we delete singleton blocks from
+# both graphs, and pick a smallest block B from the remainder of G.
+#  5. Is there an isomorphism from H to G in which B[1] is the target of
+#     any of the possible elements from the corresponding block of H?
+# Set infolevel[isom]>=2 to see information about step 4 reported.
+#
+`posets/cisom`:=proc() local G,H,muG,muH,X,Y,i,j,r,pi,q;
+  muG:=args[4]; muH:=args[2];
+  if map(nops,muH)<>map(nops,muG) then RETURN() fi;
+  G:=args[3]; H:=args[1];
+  X:=map(op,muG); Y:=map(op,muH);
+  pi:={seq(Y[i]=X[i],i=1..nops(X))};
+  if subs(pi,H)=G then RETURN(pi) else r:=nops(muG) fi;
+  muG:=`posets/separate`(G,muG,q);
+  muH:=`posets/separate`(H,muH,q);
+  if map(x->x[1],muG)<>map(x->x[1],muH) then RETURN() fi;
+  muG:=map(x->x[2],muG); muH:=map(x->x[2],muH);
+  if nops(muG)>r then RETURN(procname(H,muH,G,muG)) fi;
+  X:=zip((A,B)->if nops(A)=1 then A[1]=B[1] fi,muH,muG);
+  G:=`posets/cisom/restrict`(G,muG);
+  H:=`posets/cisom/restrict`(H,muH);
+  j:=`posets/cisom/smallest`(G[2],'r');
+  userinfo(2,'isom',cat(`descending to a `,r,`-block`));
+  G:=`posets/cisom/pick`(1,j,G);
+  for i to r do
+    pi:=procname(`posets/cisom/pick`(i,j,H),G);
+    if pi<>NULL then RETURN({op(X),op(pi)}) fi;
+  od; NULL
+end:
+#
+# Restrict to the subgraph of G induced by vertices in blocks of size >=2,
+# and return the new G and new mu (as an expression sequence).
+#
+`posets/cisom/restrict`:=proc(G,mu) local X,nu;
+  nu:=map(x->if nops(x)>1 then x fi,mu); X:=map(op,nu);
+  map(proc(x,y) if member(x[1],y) and member(x[2],y)
+    then x fi end,G,X),nu;
+end:
+#
+# Find the index of the smallest block of mu; assign its size to args[2].
+# Note that mu will always be nonempty at this point, with blocks >= 2.
+# We could bail out early upon finding a 2-block, but we don't bother.
+#
+`posets/cisom/smallest`:=proc(mu) local m,k,i,j;
+  m:=nops(mu[1]); j:=1;
+  for i from 2 to nops(mu) do
+    k:=nops(mu[i]);
+    if k<m then m:=k; j:=i fi
+  od;
+  assign(args[2],m); j
+end:
+#
+# Replace the j-th block of mu with two blocks: a singleton consisting
+# of the i-th member of the block, and the remainder of the block.
+#
+`posets/cisom/pick`:=proc(i,j,G,mu) local B;
+  B:=mu[j]; G,subsop(j=({B[i]},subsop(i=NULL,B)),mu)
+end:
+#
+# closure(R) returns the transitive closure of an acyclic relation R.
+# If a linear extension X of R is known, then closure(R,X) does the same,
+#  but more efficiently.
+# If the last argument is 'table', then a down-table of relations is
+#  returned: down[x] = { y : y < x }.
+#
+`posets/closure`:=proc(R) local n,X,down,x,y;
+  n:=nargs; if args[n]='table' then n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=2 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](args[1..n])) fi;
+  down:=`posets/downsets`(R,X);
+  if args[nargs]='table' then op(down)
+    else {seq(seq([y,x],y=down[x]),x=X)} fi;
+end:
+#
+# connected(P,X) returns true or false according to whether the poset P with
+#  vertex set X has a connected Hasse diagram.
+# connected(P,n) does the same, assuming X={1,...,n}.
+# connected(P) does the same, assuming there are no isolated vertices.
+#
+# connected(P,X,'comps') does the same, and in addition, assigns to the
+#  variable name 'comps' the set of vertex sets of the connected components.
+#
+# The algorithm works correctly if P is the edge set of *any* graph.
+#
+`posets/connected`:=proc(P) local C,X,Y,Q,i,n,cc_flag;
+  X:=map(op,P); n:=nargs; cc_flag:=false;
+  if type(args[n],'name') then cc_flag:=true; n:=n-1 fi;
+  if n>1 then Y:=X;
+    if type(args[n],'integer') then X:={$1..args[2]} else X:=args[2] fi;
+    if nops(Y)<nops(X) and not cc_flag then RETURN(evalb(nops(X)=1)) fi;
+  fi;
+  Q:=[X,op(map(x->[x[1],x[2]],P))]; # in case of *unordered* pairs
+  if cc_flag then 
+    C:=table([seq(i={i},i=X)]); i:=nops(Q);
+    while i>1 and nops(Q[1])>1 do
+      C[Q[i][2]]:={op(C[Q[i][2]]),op(C[Q[i][1]])};
+      Q:=subs(Q[i][1]=Q[i][2],[op(1..i-1,Q)]); i:=i-1
+    od;
+    assign(args[nargs],{seq(C[i],i=Q[1])});
+  else i:=nops(Q);
+    while i>1 and nops(Q[1])>1 do
+      Q:=subs(Q[i][1]=Q[i][2],[op(1..i-1,Q)]); i:=i-1
+    od;
+  fi;
+  evalb(nops(Q[1])=1);
+end:
+#
+# covers(R) returns the set of covering pairs in an acyclic relation R.
+# If a linear extension X of R is known, then covers(R,X) does the same,
+#  but more efficiently.
+# If the last argument is 'closed', then R is assumed to be transitively
+#  closed, which also allows more efficiency.
+#
+`posets/covers`:=proc(R) local n,X,down,x,y; 
+  n:=nargs; if args[n]='closed' then n:=n-1 fi;
+  if n>1 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](R)) fi;
+  if n=nargs then down:=`posets/downsets`(R,X)
+    else down:=`posets/coversets`(R,X) fi;
+  for x in X do down[x]:=down[x] minus {seq(op(down[y]),y=down[x])} od;
+  {seq(seq([y,x],y=down[x]),x=X)}
+end: 
+#
+# P &u Q returns the disjoint union of the posets P and Q. That is, the
+#  vertices of P and Q are renamed so as to be disjoint sets, and then
+#  the union of P and Q is returned. (One can also use P &u Q &u R, etc).
+#  If one or more of the posets, say P, has isolated vertices, then one
+#  must use the syntax (P,X) &u Q or (P,n) &u Q, where X or {1,...,n} is
+#  the vertex set of P, resp.
+# The output will be a poset on the vertex set {1,2,...,m} for some m.
+#  If any of the arguments are of the form (P,X) or (P,n), then the
+#  output will also be of this form.
+#
+`posets/&u`:=proc() local P,Q,X,i,n,flag,j;
+  flag:=false; n:=0; Q:=NULL;
+  for i to nargs do P:=args[i];
+    if i=nargs or type(args[i+1],'set'('list')) then X:=map(op,P)
+      elif type(args[i+1],'set') then
+        flag:=true; i:=i+1; X:=args[i]
+      elif type(args[i+1],'integer') then
+        flag:=true; i:=i+1; X:={$1..args[i]}
+      else ERROR(`invalid arguments`) fi;
+    Q:=Q,subs({seq(X[j]=j+n,j=1..nops(X))},P);
+    n:=n+nops(X);
+  od;
+  Q:=map(op,{Q});
+  if flag then Q,n else Q fi;
+end:
+#
+# distributive(L) returns true or false according to whether the lattice L
+#  is distributive. The procedure does *not* verify that L is a lattice.
+# distributive(L,'Irr') does the same, and also assigns the set of join-
+#  irreducible elements of L to 'Irr', even if not L is distributive.
+#
+`posets/distributive`:=proc(L) local X,up,down,e,F,r,i,j;
+  r:=nargs; if type(args[r],'name') then r:=r-1 fi;
+  if r=1 then X:=map(op,L);
+    elif type(args[r],'integer') then X:={$1..args[r]}
+    else X:=args[r] fi;
+  down:=table('sparse');
+  for e in L do down[e[2]]:=down[e[2]]+1 od;
+  down:=map(proc(x,y) if y[x]=1 then x fi end,X,down);
+  if type(args[nargs],'name') then assign(args[nargs],down) fi;
+  F:=posets['filter'](L,X);
+  if not nops(down)+1=nops(F) then RETURN(false) fi;
+  up:=table('sparse');
+  for e in L do up[e[1]]:=up[e[1]]+1 od;
+  up:=map(proc(x,y) if y[x]=1 then x fi end,X,up);
+  if nops(up)<>nops(down) then RETURN(false) fi;
+  r:=table([seq(seq(i=j,i=F[j]),j=1..nops(F))]);
+  for e in L do if r[e[2]]-r[e[1]]<>1 then RETURN(false) fi od; true
+end:
+#
+# Take the data passed from a call to plot_poset and use it to printf a
+#  plot in the DOT language. Reference: <www.graphviz.org>.
+# The top level proc is just a wrapper that sets up quiet output and
+#  traps errors that interfere with restoring output to the terminal.
+#
+`posets/dotplot`:=proc(file) local f,q;
+  q:=interface('quiet'); interface('quiet'=true);
+  if nops(file)=1 then printf(`\n`) else writeto(file[2]) fi;
+  f:=traperror(`posets/dotplot/main`(args[2..nargs]));
+  if nops(file)=1 then printf(`\n`) else writeto('terminal') fi;
+  interface('quiet'=q);
+  if f=lasterror then ERROR(lasterror) fi
+end:
+#
+# The real work is here. Each line of output for the first color class
+#  begins with a declaration of a vertex x, followed by the list of edges
+#  with tail x. All other color classes are output as edge-lists only.
+# Exceptional case: there might be no edges and no color classes.
+# If a level-partition F is supplied, DOT can use it, but the language
+#  doesn't seem to support user-specified ordering within levels.
+# Note that the default vcolor in Maple V R3 or earlier is white,
+#  which is almost certainly not what you want when using DOT.
+#  
+`posets/dotplot/main`:=proc(C,X,F,vclr,labs) local down,x,c,Y,first;
+  printf(`digraph some_poset {\n`);
+  if type(labs,'table') then
+    printf(`node [color=%s,fontcolor=%s];\n`,vclr,vclr)
+  else
+    printf(`node [color=%s,shape=point];\n`,vclr) fi;
+  for c in C do
+    if first=NULL then printf(`edge [color=%s];\n`,c[1])
+      else printf(`edge [arrowhead=none,color=%s];\n`,c[1]) fi;
+    down:=`posets/coversets`(c[2],X);
+    for x in X do `posets/dotplot/line`(x,down[x],labs,first) od;
+    first:=NULL
+  od;
+  if nops(C)=0 then for x in X do
+    `posets/dotplot/line`(x,down[x],labs,first) od fi;
+  if type(F,'list') then for Y in F do
+    printf(`  { rank=same; `);
+    for x in Y do printf(`%a; `,x) od;
+    printf(`}\n`)
+  od fi;
+  printf(`}\n`)
+end:
+#
+# Process edges with tail x in the current color. The first time through,
+# declare x as a node in case it has a special label or is isolated.
+#
+`posets/dotplot/line`:=proc(x,Y,L) local y,s;
+  if nargs>3 then s:=``;
+    if type(L,'table') then s:=cat(` [label="`,L[x],`"]`) fi;
+    printf(`%a%s;`,x,s)
+  fi;
+  if nops(Y)>0 then
+    for y in Y do printf(` %a -> %a;`,x,y) od fi;
+  if nargs>3 or nops(Y)>0 then printf(`\n`) fi
+end:
+#
+# Generate a table whose x entry is the set of vertices y covered by x.
+# We do not confirm that P is a covering relation, so the x entry is
+#  really the set of y such that [y,x] is a member of P.
+# Add a flag as args[3] to add loops [x,x] at each vertex x.
+#
+`posets/coversets`:=proc(P,X) local x,e,cov;
+  if nargs>2 then cov:=table([seq(x=x,x=X)]);
+    else cov:=table([seq(x=NULL,x=X)]) fi;
+  for e in P do cov[e[2]]:=cov[e[2]],e[1] od;
+  for x in X do cov[x]:={cov[x]} od; op(cov)
+end:
+#
+# Do the same, but here we want the x entry to be the set of all y<x
+#  in the transitive closure of P.
+# Or add the flag 'up' as args[3], to get {y: y>x} instead.
+# IMPORTANT: here, X must be a linear extension of P; i.e., a *list*
+#  of the vertices of P so that y<x in P implies y precedes x in X.
+# If P is known to be transitive, then the same result can be obtained
+#  more cheaply by computing coversets.
+#
+`posets/downsets`:=proc(P,X) local down,x,y,i;
+  if not type(X,'list') then
+    ERROR(`vertices must be in a list`)
+  elif nargs>2 then
+    procname(posets['dual'](P),[seq(X[-i],i=-nops(X)..-1)])
+  else
+    down:=`posets/coversets`(P,X);
+    for x in X do down[x]:={op(down[x]),seq(op(down[y]),y=down[x])} od;
+    op(down)
+  fi
+end:
+#
+# dual(R) returns the dual of the relation R. That is, each ordered pair
+# [a,b] in R (a list or set) is replaced by [b,a].
+#
+`posets/dual`:=proc(R) map(x->[x[2],x[1]],R) end:
+#
+# eulerian(P,X) returns true/false if the poset P is/not Eulerian:
+#  ranked and bounded, and with mobius function (-1)^(rank(y)-rank(x)).
+# eulerian(P,n) does the same, assuming X={1,...,n}.
+# eulerian(P) does the same, assuming there are no isolated vertices.
+# If the poset is ranked and bounded, and the last argument is an
+#  unassigned name, then the rank partition is assigned to this name.
+#
+`posets/eulerian`:=proc(P) local n,F,i,x,y,rk,down,e,f,a;
+  n:=nargs; if type(args[n],'name') then n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`) else
+    F:=posets['filter'](args[1..n]) fi;
+  if nops(F)=0 or nops(F[1])>1 or nops(F[nops(F)])>1
+    then RETURN(false) fi;
+  rk:=table([seq(seq(x=i,x=F[i]),i=1..nops(F))]);
+  for e in P do if rk[e[2]]-rk[e[1]]<>1 then RETURN(false) fi od;
+  if type(args[nargs],'name') then assign(args[nargs],F) fi;
+  F:=map(op,F); down:=`posets/coversets`(P,F);
+  for x in F do
+    rk[x]:=2*modp(rk[x],2)-1;
+    f:={a[x],seq(op(indets(down[y])),y=down[x])};
+    down[x]:=convert(f,`+`);
+    f:=subs({seq(y=rk[op(y)]*down[op(y)],y=f)},down[x]);
+    if f<>rk[x]*a[x] then RETURN(false) fi;
+  od; true
+end:
+#
+# extensions(P,X) lists all linear extensions of a poset P
+#  with vertex set X.
+# extensions(P,n) does the same, using X={1,...,n}.
+# extensions(P) does the same, assuming there are no isolated vertices.
+#
+`posets/extensions`:=proc(P) local X,bot,Q,x,res;
+  if nargs=1 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2]
+  fi;
+  if nops(X)<2 then RETURN([[op(X)]]) fi;
+  bot:=X minus map(e->op(2,e),P); res:=NULL;
+  for x in bot do
+    Q:=map(proc(e,y) if e[1]<>y then e fi end,P,x);
+    res:=res,map((y,z)->[z,op(y)],procname(Q,X minus {x}),x)
+  od;
+  map(op,[res])
+end:
+#
+# Compute the "fast discriminant" of a directed graph G with vertex
+# partition mu: this is the coarsest refinement nu of mu such that
+# for all vertices x in block i of nu,
+#   the number of edges x -> block j depends only on i and j, and
+#   the number of edges x <- block j depends only on i and j.
+#
+# The return value nu is a canonically ordered vertex partition,
+# with the ordering determined by the values of the above numbers.
+# If f:(G,mu) -> (H,nu) is an isomorphism of colored graphs, then f maps
+# the fast discriminant of (G,mu) to the fast discriminant of (H,nu).
+#
+# Note: even though mu=[{}] is not a valid vertex partition, it is
+# useful to allow calling procedures to provide this as input.
+#
+`posets/fastdisc`:=proc() local G,X,Xold,Y,mu,n;
+  G:=args[1]; mu:=args[2]; X:={};
+  do
+    Xold:=X; n:=nops(mu);
+    X:={op(map(x->if nops(x)=1 then op(x) fi,mu))};
+    if nops(X)=n then break fi;
+    mu:=`posets/separate`(G,mu);
+    if nops(mu)=n then break
+      elif nops(X)>nops(Xold) then
+        Y:=X minus Xold;
+        G:=map(proc(x,y) if not (member(x[1],y) or member(x[2],y))
+          then x fi end,G,Y)
+    fi
+  od; mu
+end:
+#
+# filter(D,X) returns the filtration of acyclic graph D with vertex set X.
+#  filtration = [F1,F2,...,F_r], where F1={minimal elements of D},
+#  F2={minimal elements of D-F1}, etc...
+# filter(D,n) does the same, using the vertex set {1,...,n}.
+# filter(D) does the same, assuming that D has no isolated vertices.
+#  Reference: Knuth, TAOCP Vol I., Sec. 2.2.3.
+# The inner loop is ugly, but faster than the more natural mapping.
+#
+`posets/filter`:=proc(P) local X,ct,up,e,x,y,F,G,res;
+  if nargs=1 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  up:=table([seq(x=NULL,x=X)]);
+  ct:=table('sparse'); res:=NULL;
+  for e in P do ct[e[2]]:=ct[e[2]]+1; up[e[1]]:=up[e[1]],e[2] od;
+  F:=NULL; for x in X do if ct[x]=0 then F:=F,x fi od;
+  while F<>NULL do
+    res:=res,{F}; G:=[F]; F:=NULL;
+    for x in G do for y in [up[x]] do
+      if ct[y]=1 then F:=F,y else ct[y]:=ct[y]-1 fi
+    od od;
+  od; [res]
+end:
+#
+# flag_f(P,X,q) computes the flag f-polynomial of a ranked, bounded poset
+#  P with vertex set X. The output is multilinear in the variables
+#  q[1],q[2],... and the coefficient of q[i]*q[j]*...*q[r] is the number
+#  of chains 0 < x < y < ... < 1  in which rank(x)=i, rank(y)=j, ....
+# By convention, every chain terminates with the maximum 1, so (if 0 < 1)
+#  every term of the output includes the factor q[r], where r=rank(1).
+# flag_f(P,n,q) does the same, assuming X={1,2,...,n}.
+# flag_f(P,q) does the same, assuming there are no isolated vertices.
+#
+`posets/flag_f`:=proc() `posets/flag_f/main`(1,args) end:
+#
+# Do the same for the flag h-polynomial. If F is the flag f-poly, then
+#  (1-q[1])*(1-q[2])*...*F( q[1]/(1-q[1]) , q[2]/(1-q[2]), ...)
+# is the flag h-polynomial, but this is not how we do the computation.
+#
+`posets/flag_h`:=proc() `posets/flag_f/main`((r,z)->1-z[r],args) end:
+#
+`posets/flag_f/main`:=proc(g,P) local R,down;
+  if not type(args[nargs],'name') or nargs>4 then
+    ERROR(`invalid arguments`)
+  elif not posets['ranked'](args[2..nargs-1],'R') then
+    ERROR(`the poset is not ranked`)
+  elif nops(R)=0 or nops(R[1])>1 then
+    ERROR(`the poset lacks a minimum element`)
+  elif nops(R[nops(R)])>1 then
+    ERROR(`the poset lacks a maximum element`) fi;
+  down:=`posets/downsets`(P,map(op,R));
+  `posets/flagtool`(down,R,(r,z)->z[r],g,args[nargs])
+end:
+#
+# Implement a generic sum over flags (chains) in a ranked, bounded poset.
+# In the input, 'down' should be a table of downsets for each vertex,
+#  and R the rank partition of the vertex set. The blocks of R must be
+#  listed in order of increasing rank.
+# The arguments f and g should be procedures that compute weights to be
+#  applied to each chain as follows: if a chain 0 < x < y < ... < 1
+#  passes through ranks 0 < a < b < ... < r, and skips ranks c,d,...
+#  then the weight of the chain is g(c)*g(d)*...*f(a)*f(b)*...*f(r).
+# Any additional arguments supplied are passed on to f and g.
+# By convention, the last rank in every chain is r=rank(1), so every
+#  chain weight includes the factor f(r).
+# When g=1 or g=1-f, the result is the flag f-vector or h-vector.
+# Note that f(i) is called exactly once each for i=1..r,
+#  and g(i) is called i times for i=1..r-1.
+# We don't check that the poset actually is ranked or bounded.
+#
+`posets/flagtool`:=proc(down,R,f,g) local wt,rk,res,x,y,r,win;
+  wt:=table(); rk:=table([R[1][1]=0]);
+  res:=table([R[1][1]=1]);
+  for r to nops(R)-1 do
+    win:=f(r,args[5..nargs]); wt[r-1,r]:=1;
+    for x in R[r+1] do
+      rk[x]:=r; res[x]:=0;
+      for y in down[x] do    
+        if not assigned(wt[rk[y],r]) then
+          wt[rk[y],r]:=wt[rk[y],r-1]*g(r-1,args[5..nargs]) fi;
+        res[x]:=res[x]+res[y]*wt[rk[y],r]
+      od;
+      res[x]:=expand(res[x]*win);
+    od;
+  od; res[R[r][1]]
+end:
+#
+# f_poly(P,X,q) evaluates the f-polynomial of a bounded poset P with
+#  vertex set X at q; i.e., the sum of f_k * q^k, where f_k is the
+#  number of chains from 0 to 1 of length k.
+# f_poly(P,n,q) does the same, assuming X={1,2,...,n}.
+# f_poly(P,q) does the same (there shouldn't be isolated vertices).
+#
+`posets/f_poly`:=proc(P) local PS,f,q;
+  PS:=`posets/f_poly/unbind`(args[1..nargs-1]);
+  if nops(P)=0 then f:=1 else f:=q*posets['chains'](PS,q) fi;
+  expand(subs(q=args[nargs],f));
+end:
+#
+# Do the same for the h-polynomial. If f is the f-poly, then
+#  the h-poly is h(q)=(1-q)^d * f(q/(1-q)), where d=degree(f).
+#
+`posets/h_poly`:=proc(P) local PS,f,d,z,q;
+  PS:=`posets/f_poly/unbind`(args[1..nargs-1]);
+  if nops(P)=0 then RETURN(1) fi;
+  f:=posets['chains'](PS,q); d:=degree(f,q);
+  f:=expand(z^d*q*subs(q=q/z,f));
+  expand(subs(q=args[nargs],z=1-args[nargs],f))
+end:
+#
+# Return the poset structure obtained by deleting the maximum and
+# minimum elements, or scream if the poset lacks these features.
+# Note that if args[2] is a linear extension, we do the right thing.
+#
+`posets/f_poly/unbind`:=proc(P) local X,x0,x1;
+  if nargs>2 then ERROR(`invalid arguments`)
+    elif nargs=1 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  x0:={op(X)} minus map(e->op(2,e),P);
+  if nops(x0)=1 then x0:=op(x0) else 
+    ERROR(`the poset lacks a minimum element`) fi;
+  x1:={op(X)} minus map(e->op(1,e),P);
+  if nops(x1)=1 then x1:=op(x1) else
+    ERROR(`the poset lacks a maximum element`) fi;
+  map(proc(e,x,y) if e[1]<>x and e[2]<>y then e fi end,P,x0,x1),
+    subs(x0=NULL,x1=NULL,X)
+end:
+#
+# ideals(P,X) generates a lexordered list of all order ideals of a poset P
+#  with vertex set X.
+# ideals(P,n) does the same, using X={1,...,n}.
+# ideals(P) does the same, assuming that P has no isolated vertices.
+# In the lexorder, ideal I precedes ideal J if the "last" member of the
+#  symmetric difference of I and J occurs in J. Here, "last" is determined
+#  by some chosen linear extension of the vertex set of P.
+# To force a particular choice of linear extension, provide X as a *list*
+#  of vertices in the desired order.
+# Optionally, if the final argument (the 2nd or 3rd) is:
+#  -a name, such as q, then the generating series for ideals is returned
+#   (i.e., the sum of q^nops(I) for all ideals I of P)
+#  -a range, such as 2..7, the result is a lexordered list of ideals of P
+#   with sizes in this range.
+#
+`posets/ideals`:=proc(P) local Q,X,n,lb,ub,q;
+  lb:=NULL; q:=NULL; n:=nargs;
+  if type(args[n],'range') then
+    lb:=op(1,args[n]); ub:=op(2,args[n]); n:=n-1
+  elif type(args[n],'name') then
+    q:=args[n]; n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=2 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](args[1..n])) fi;
+  if lb=NULL then lb:=0; ub:=nops(X)
+    elif nops(X)<lb or ub<0 or ub<lb then RETURN([]) fi;
+  Q:=posets['closure'](P,X);
+  if q=NULL then `posets/ideals/list`(Q,X,lb,ub)
+    else `posets/ideals/series`(Q,X,q) fi
+end:
+#
+# Ideals either omit the last member of X, or they do not...
+# The input is always kept sane:  nops(X) >= lb <= ub >= 0.
+#
+`posets/ideals/list`:=proc(Q,X,lb,ub) local n,mx,P,Y,L,J,j;
+  n:=nops(X);
+  if n=0 then RETURN([{}])
+    elif n-1<lb then
+      if n<=ub then RETURN([{op(X)}]) else RETURN([]) fi
+  fi;
+  mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  L:=procname(P,Y,lb,ub);
+  Y:=map(proc(x,y,Z) if not member([x,y],Z) then x fi end,Y,mx,Q);
+  J:={op(X)} minus {op(Y)}; j:=nops(J);
+  if j>ub then RETURN(L) elif j>1 then
+    P:=map(proc(e,Z) if member(e[1],Z) then e fi end,P,Y) fi;
+  [op(L),op(map((x,y)->{op(x),op(y)},procname(P,Y,lb-j,ub-j),J))]
+end:
+#
+# For a series, we can escape when the last member of X is isolated.
+#
+`posets/ideals/series`:=proc(Q,X,q) local n,mx,P,Y,f,j;
+  if nops(Q)=0 then RETURN(expand((1+q)^nops(X))) fi;
+  n:=nops(X); mx:=X[n]; Y:=subsop(n=NULL,X);
+  P:=map(proc(e,y) if e[2]<>y then e fi end,Q,mx);
+  f:=procname(P,Y,q);
+  Y:=map(proc(x,y,Z) if not member([x,y],Z) then x fi end,Y,mx,Q);
+  j:=n-nops(Y);
+  if j=1 then f+expand(q*f) else
+    P:=map(proc(e,Z) if member(e[1],Z) then e fi end,P,Y);
+    f+expand(q^j*procname(P,Y,q))
+  fi
+end:
+#
+# An isomorphism tester/finder for directed graphs.
+# Based on the fast discriminant (see `posets/fastdisc`).
+# Note: this is similar to the algorithm used by Brendan McKay for nauty.
+# See http://cs.anu.edu.au:80/people/bdm/nauty/,
+#   Congressus Numerantium 21 (1978), 499-517.
+#
+# isom(P,Q) decides if the digraphs P and Q are isomorphic.
+# isom(P,Q,'pi') does the same, and if P is isomorphic to Q, assigns
+#  to pi an explicit isomorphism in the form {x1=y1,x2=y2,...},
+#  where {x1,x2,...} and {y1,y2,...} are the vertex sets of P and Q.
+#
+# An undocumented feature: we also allow P and Q to be vertex-colored.
+# In this case, the calling sequence should be isom(P,mu,Q,nu), where
+# mu and nu are vertex partitions of P and Q (lists of sets).
+#
+`posets/isom`:=proc() local n,flag,Y,P,mu,pi;
+  n:=0; flag:=false;
+  for Y in [args] do
+    if type(Y,'set(list)') then
+      n:=n+1; P[n]:=Y; mu[n]:=[map(op,Y)]
+      elif type(Y,'list(set)') then mu[n]:=Y
+      elif type(Y,'set') then mu[n]:=[Y]
+      elif type(Y,'integer') then mu[n]:=[{$1..Y}]
+      elif type(Y,'name') and Y=args[nargs] then flag:=true
+      else ERROR(`invalid arguments`)
+    fi
+  od;
+  if n<>2 then ERROR(`invalid arguments`) fi;
+  pi:=`posets/cisom`(P[1],mu[1],P[2],mu[2]);
+  if pi=NULL then false else
+    if flag then assign(args[nargs],pi) fi; true
+  fi
+end:
+#
+# J(P,X) returns the abstract poset of order ideals of a poset P with
+#  vertex set X.
+# The vertices of the output are numbered 1 to m following the lexorder
+#  used by 'ideals'; i.e., ideals(P,X)[i] is the i-th vertex of J(P,X).
+# J(P,n) does the same, assuming X={1,2,...,n}.
+# J(P) does the same, assuming there are no isolated vertices.
+# The vertex set X can be a linear extension of P (a *list*, not a *set*)
+#  in order to control the lexordering used for the ideals.
+# The output is always a naturally labeled poset.
+#
+# Append 'table' to get the table of upward covers.
+# A fact of life: given that we want a natural numbering of the ideals,
+#  downward covers are significantly more expensive to compute.
+#
+`posets/J`:=proc(P) local X,up,Jup,m,loc,x,y,i,j,K,L;
+  m:=nargs; if args[m]='table' then m:=m-1 fi;
+  if m>2 then ERROR(`invalid arguments`)
+    elif m=2 and type(args[2],'list') then X:=args[2]
+    else X:=map(op,posets['filter'](args[1..m])) fi;
+  up:=`posets/downsets`(P,X,'up');
+  loc:=table([seq(x=1,x=X)]);
+  Jup:=table([1={}]); m:=1;
+  for x in X do
+    K:=table([1={loc[x]}]);
+    for j while nops(K[j])>0 do K[j+1]:={seq(op(Jup[i]),i=K[j])} od;
+    K:=sort([seq(op(K[i]),i=1..j-1)]);
+    L:=[seq(K[j]=m+j,j=1..nops(K))];
+    for j to nops(K) do i:=m+j;
+      Jup[i]:=subs(L,Jup[K[j]]);
+      Jup[K[j]]:={op(Jup[K[j]]),i};
+    od;
+    for y in up[x] do if member(loc[y],K,'j') then loc[y]:=m+j fi od;
+    m:=m+nops(K)
+  od;
+  if args[nargs]='table' then op(Jup)
+    elif m=1 then {},1
+    else {seq(seq([i,j],j=Jup[i]),i=1..m)} fi
+end:
+#
+# Given a linear extension X of P, generate the up-table of legal
+# inclusions in J(P) relative to a labeling with inversion set V,
+# and assign to args[4] the partition of the vertices into ranks in
+# descending order. An inclusion I < J is legal iff J-I contains no
+# pair i,j with [i,j] in V.
+#
+# We'd rather have the down-table, but once we are handed a linear
+# extension, the up-table is more natural to compute. An alternative
+# is to view this as the down-table of dual(P) relative to dual(V),
+# assigning to args[4] the natural (ascending) rank partition.
+#
+# After k rounds of the main loop, we have computed both the up-table
+# of legal inclusions (leg) and upward cover table for all ideals (Jup)
+# for the subposet formed by the first k members of X.
+#
+`posets/labtab`:=proc(P,X,V) local up,red,loc,Jup,bot,leg,m,x,y,i,j,K,new;
+  up:=`posets/downsets`(P,X,'up');
+  red:=`posets/labtab/red`(P,X,V); m:=1;
+  loc:=table([seq(x=1,x=X)]); Jup:=table([1={}]);
+  bot:=table([seq(x=1,x=X)]); leg:=table([1={}]);
+  for x in X do
+    K:=table('sparse'); new:={loc[x]};
+    while nops(new)>0 do
+      for i in new do m:=m+1; K[i]:=m od;
+      new:={seq(op(Jup[i]),i=new)}
+    od;
+    new:=map(op,[indices(K)]);
+    for i in new do
+      Jup[K[i]]:=[seq(K[j],j=Jup[i])];
+      leg[K[i]]:=[seq(K[j],j=leg[i])];
+      Jup[i]:=[K[i],op(Jup[i])];
+      leg[i]:=[K[i],op(leg[i])];
+    od;
+    new:={bot[x]};
+    while nops(new)>0 do
+      for i in new do
+        leg[i]:=subs(0=NULL,[op(leg[i]),seq(K[j],j=leg[i])])
+      od;
+      new:={seq(op(Jup[i]),i=new)}
+    od;
+    for y in up[x] do loc[y]:=K[loc[y]];
+      if member(x,red[y]) then bot[y]:=K[bot[y]] fi
+    od;
+  od;
+  assign(args[4],`posets/labtab/rankpart`(Jup)); op(leg)
+end:
+#
+# Build the red-table: red[x] = ideal generated by all y with [y,x] in V.
+#
+`posets/labtab/red`:=proc(P,X,V) local down,red,e,x;
+  down:=`posets/downsets`(P,X);
+  red:=table([seq(x={},x=X)]);
+  for e in V do red[e[2]]:={op(red[e[2]]),e[1],op(down[e[1]])} od;
+  op(red)
+end:
+#
+# Get the (reverse) rank partition from a table of up-covers,
+# given that 1 is a minimum element.
+#
+`posets/labtab/rankpart`:=proc(up) local R,r,i;
+  R:=table([1={1}]);
+  for r while nops(R[r])>0 do R[r+1]:={seq(op(up[i]),i=R[r])} od;
+  [seq(R[-i],i=1-r..-1)]
+end:
+#
+# lattice(L) returns true or false according to whether the poset L is 
+#  or is not a lattice. Use lattice(L,X) and lattice(L,n) similarly.
+# lattice(L,'semi'), lattice(L,X,'semi') and lattice(L,n,'semi') return
+#  true or false according to whether L is or is not a meet-semilattice;
+#  i.e., a poset where every pair of vertices has a greatest lower bound.
+# To test for a join-semilattice, use lattice(dual(L),'semi').
+#
+# We use the fact that a poset with 1 is a lattice iff meet(x,y) exists
+#  whenever there is a z covering x and y.
+# Reference: Bjorner-Edelman-Ziegler, Discrete Comput. Geom. 5 (1990).
+#
+`posets/lattice`:=proc() local X,P,n,lbs,i,j,k,A,Cov;
+  if nargs=1 then X:=map(op,args[1])
+    elif type(args[2],'set') then X:=args[2]
+    elif type(args[2],'integer') then X:={$1..args[2]} 
+    else X:=map(op,args[1])
+  fi;
+  P:=args[1]; n:=nops(X); A:=map(x->x[1],P);
+  if args[nargs]<>'semi' and nops(A)<n-1 then RETURN(false) fi;
+  A:=X minus A; X:=map(op,posets['filter'](P,X));
+  P:=subs({seq(X[i]=i,i=1..n)},[A,P]);
+  Cov:=`posets/coversets`(P[2],{$1..n}); Cov[n+1]:=P[1];
+  for i to n+1 do
+    A:=Cov[i]; Cov[i]:={op(A),seq(op(Cov[j]),j=A)};
+    for j to nops(A) do for k to j-1 do
+      lbs:=Cov[A[j]] intersect Cov[A[k]];
+      if nops(lbs)=0 or nops(lbs)-1>nops(Cov[max(op(lbs))]) then
+        RETURN(false) fi
+    od od
+  od; true
+end:
+#
+# Lattices(n) returns a list of all nonisomorphic lattices on {1,...,n}.
+# The lattices are naturally labeled--every relation [i,j] satisfies i<j.
+# If <property> is a procedure that accepts a lattice as input,
+# and returns true or false for output, then Lattices(n,<property>)
+# returns the sublist of lattices that satisfy <property>.
+# Any additional arguments will be passed on to <property>.
+#
+`posets/Lattices`:=proc(n) local ll,X,x,L;
+  if type(n,'posint') then
+    ll:=`posets/Lattices/lib`(n,[]); X:={$2..n-1};
+    ll:=[seq({seq([1,x],x=X minus map(e->op(2,e),L)),op(L),
+      seq([x,n],x=X minus map(e->op(1,e),L))},L=ll)]
+  else ERROR(`first argument must be a positive integer`) fi;
+  if nargs=1 then ll else
+    map(proc(P,f) if f(P,args[3..nargs]) then P fi end,
+      ll,args[2..nargs])
+  fi
+end:
+#
+# This code is specific to the vanilla edition
+#
+`posets/Lattices/lib`:=proc(n,a) local ll,L,c,n1;
+  if n=2 then [{[1,2]}] # a kluge
+    elif n<4 then [{}]
+    elif n=4 then [{},{[2,3]}]
+    elif n<=10 then n1:=n-1;
+      ll:=zip((x,y)->[x,[0,op(y)]],procname(n1,[0]),`posets/pcodes`[n-2]);
+      [seq(seq(`posets/Lattices/unpack`(L[1],c,n1,a),c=L[2]),L=ll)]
+    else ERROR(`input too large`)
+  fi
+end:
+#
+`posets/Lattices/unpack`:=proc(L,c,m,a) local i;
+  if L=0 or c<0 then op(a) else
+    {op(L),seq([i,m],i=`posets/Posets/getset`(2*c))} fi
+end:
+#
+# Given a level-partition F of P and initial horizontal coordinates within
+#  each level (supplied as args[4]), fix the coordinates for a plot.
+# The output is a list of triples [x,h,v], where x is a vertex of P and
+#  [h,v] are the horizontal and (unstretched) vertical coordinates of x.
+# If flag=true, then proportional spacing of vertices is used.
+#
+# Synopsis: First, locate dangerous edges that jump more than one level.
+# Next, loop over the vertices by level, and within each level,
+#  start in the center and work outwards from there, left and right.
+# For each vertex x in the loop, examine all dangerous edges with tail x.
+# If the edge passes through a vertex in an intermediate level (BAD!),
+#  shift the position of x and all vertices to the left or right of x,
+#  depending on the relative position of x within its level.
+# Repeat until no dangerous edges with tail x do bad things.
+#
+`posets/layout`:=proc(P,F,flag) local f,jmp,hc,i,j,dh,n,d;
+  f:=nops(F); hc:=array(1..f+1,args[4]); dh:=1;
+  jmp:=`posets/layout/jump`(P,F,f);
+  for i to f do
+    n:=nops(F[i]); d:=-1; j:=iquo(n,2)+1;
+    if flag then dh:=1/n fi;
+    while j>0 and j<=n do
+      while `posets/layout/bad`([i,j],jmp[i,j],hc) do
+        hc[i]:=`posets/layout/shift`(hc[i],n,dh,j,d)
+      od;
+      j:=j+d; d:=-d-signum(d)
+    od
+  od;
+  [seq(seq([F[i][j],hc[i][j],i],j=1..nops(F[i])),i=1..f)];
+end:
+#
+# Assemble the dangerous edges that jump more than one level.
+# Also, barf if any edge goes somewhere it shouldn't.
+# Note that it is more convenient to label vertices by their vertical
+# and horizontal rank (vhr), as determined by the level partition F.
+#
+`posets/layout/jump`:=proc(P,F,f) local vhr,jmp,i,j,e,x,y,dr;
+  vhr:=table([seq(seq(F[i][j]=(i,j),j=1..nops(F[i])),i=1..f)]);
+  jmp:=table([seq(seq((i,j)=[],j=1..nops(F[i])),i=1..f)]);
+  for e in P do
+    y:=vhr[e[2]]; x:=vhr[e[1]]; dr:=y[1]-x[1];
+    if dr<1 then ERROR(`invalid level partition`)
+      elif dr>1 then jmp[y]:=[op(jmp[y]),[x]] fi
+  od; op(jmp)
+end:
+#
+# Determine if there is a dangerous edge with tail x that does bad
+# things (i.e., passes through a vertex in an intermediate level).
+#
+`posets/layout/bad`:=proc(x,dang,hc) local y,dv,dh,hy,r;
+  for y in dang do
+    dv:=x[1]-y[1]; hy:=hc[y[1]][y[2]];
+    dh:=(hc[x[1]][x[2]]-hy)/dv;
+    for r from y[1]+1 to x[1]-1 do
+      hy:=hy+dh; if member(hy,hc[r]) then RETURN(true) fi
+    od
+  od; false
+end:
+#
+# Shift some horizontal coordinates by dh to avoid a bad situation.
+#
+`posets/layout/shift`:=proc(hc,n,dh,j,d) local i;
+  if d<0 then [op(1..j-1,hc),seq(hc[i]+dh,i=j..n)]
+    else [seq(hc[i]-dh,i=1..j),op(j+1..n,hc)] fi
+end:
+#
+# meet(L) returns a symmetric table of values for the meet function of a 
+#  lattice or meet-semilattice L. That is, for each pair of vertices [a,b]
+#  of L, meet(L)[a,b] is the greatest lower bound for a and b.
+# meet(L,[a,b,...]) will return the greatest lower bound for vertices a,b,...
+# The procedure does *not* verify that L is a lattice or semilattice.
+# In fact, L can be any poset, in which case, the answer returned is a
+#  maximal lower bound, or NULL, if there is no such lower bound.
+#
+`posets/meet`:=proc(L) local X,n,down,i,j,res,elts;
+  n:=nargs; if type(args[n],'list') then n:=n-1 fi;
+  if n=1 then X:=map(op,L)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  X:=map(op,posets['filter'](L,X)); n:=nops(X);
+  down:=`posets/downsets`(subs({seq(X[i]=i,i=1..n)},L),[$1..n]);
+  for i to n do down[i]:={i,op(down[i])} od;
+  if type(args[nargs],'list') then res:={$1..n};
+    elts:=subs({seq(X[i]=i,i=1..n)},args[nargs]);
+    for i in elts do res:=res intersect down[i] od;
+    if nops(res)>0 then X[max(op(res))] fi
+  else
+    res:=table('symmetric');
+    for i to n do
+      res[X[i],X[i]]:=X[i];
+      for j from i+1 to n do
+        elts:=down[i] intersect down[j];
+        if nops(elts)>0 then res[X[i],X[j]]:=X[max(op(elts))] fi;
+      od;
+    od; op(res)
+  fi
+end:
+#
+# mobius(P,X) returns a 'sparse' table of values for the mobius function
+#  of the poset P with vertex set X.
+# mobius(P,n) does the same but assumes X={1,...,n}.
+# mobius(P)   does the same, but assumes there are no isolated vertices. 
+# mobius(P,[a,b]) returns the value of the mobius function at [a,b].
+# mobius(P,X,[a,b]) and mobius(P,n,[a,b]) function similarly.
+#
+`posets/mobius`:=proc() local P,X,x,y,z,down,mu,n;
+  n:=nargs; P:=args[1];
+  if type(args[n],'list') then
+    if args[n][1]=args[n][2] then RETURN(1) fi;
+    P:=posets['subinterval'](args);
+    if P=NULL then RETURN(0) else X:=map(op,P) fi;
+  elif n>2 then ERROR(`invalid arguments`)
+  else X:=args[2..n] fi;
+  X:=map(op,posets['filter'](P,X));
+  down:=`posets/downsets`(P,X);
+  if type(args[n],'list') then
+    mu:=table([X[1]=1]); X:=subsop(1=NULL,X);
+    for x in X do mu[x]:=-convert([seq(mu[y],y=down[x])],`+`) od
+  else
+    mu:=table('sparse');
+    for x in X do mu[x,x]:=1;
+      for y in down[x] do
+        mu[y,x]:=-convert([seq(mu[y,z],z=down[x])],`+`)
+      od
+    od; op(mu)
+  fi
+end:
+#
+# modular(L) returns true or false according to whether the lattice L is
+#  modular; i.e., L is ranked, and the rank function satisfies r[x]+r[y]=
+#  r[meet(x,y)] + r[join(x,y)] for all vertices x and y.
+# modular(L,'upper') and (respectively)  modular(L,'lower') returns true or
+#  false according to whether the lattice L is upper (resp., lower) semi-
+#  modular; i.e., L is ranked and the rank function satisfies r[x]+r[y] >=
+#  (resp., <=) r[meet(x,y)] + r[join(x,y)] for all vertices x and y.
+# The procedure does *not* check whether L is a lattice.
+#
+`posets/modular`:=proc(L) local X,down,A,x,i,j,Y;
+  if args[nargs]='upper' then
+    procname(posets['dual'](L),'lower')
+  elif args[nargs]<>'lower' then
+    procname(posets['dual'](L),'lower') and procname(L,'lower')
+  else
+    X:=map(op,L); down:=`posets/coversets`(L,X);
+    for x in X do Y:=down[x];
+      for i to nops(Y) do for j to i-1 do
+        A:=down[Y[i]] intersect down[Y[j]];
+        if nops(A)<>1 then RETURN(false) fi;
+      od od
+    od; true
+  fi
+end:
+#
+# omega(P,X,z) returns the order polynomial of a poset P with vertex set X.
+# omega(P,n,z) does the same, using X={1,...,n}.
+# omega(P,z) does the same, assuming that P has no isolated vertices.
+# omega(P,X,z,S), where S is a subset of the cover relations of P, returns
+#  the order polynomial relative to a labeling in which descents occur at S.
+# omega(P,n,z,S), omega(P,z,S) function similarly.
+# Optionally, append the string 'ideals' or 'linear' to force the use of
+#  an algorithm that is either quadratic in the number of order ideals,
+#  or linear in the number of linear extensions.
+#
+`posets/omega`:=proc() posets['W'](args,'omega') end:
+#
+# These will be called by 'W', after argument-parsing and testing.
+#
+`posets/omega/linear`:=proc(Q,X,x0,m0,z) local n,f,g,t,fac,i;
+  n:=nops(X); if n=0 then RETURN(1) fi;
+  g:=`posets/W/linear`(Q,X,0,1,1,t);
+  f:=0; fac:=[seq(z+n-i,i=1..n)];
+  for i to degree(g,t) do
+     f:=f+coeff(g,t,i)*convert(fac,`*`);
+     fac:=subsop(i=z-i,fac);
+  od;
+  expand(f)/n!
+end:
+#
+`posets/omega/ideals`:=proc(P,X,V) local down,R,f,g,n,t,z;
+  if 2*nops(V)>nops(P) then
+    down:=`posets/labtab`(P,X,V,'R'); g:=1; z:=args[4]
+  else
+    down:=`posets/labtab`(P,X,P minus V,'R');
+    g:=(-1)^nops(X); z:=-args[4]
+  fi;
+  g:=g*`posets/flagtool`(down,R,(r,w)->w,1,t);
+  n:=degree(g,t); f:=coeff(g,t,n);
+  while n>0 do n:=n-1; f:=coeff(g,t,n)+expand((z-n)*f)/(n+1) od; f
+end:
+#
+# Given a permutation group pg, expressed as a list or set of sets of
+# equations defining substitutions that generate the group, determine
+# the orbit of a point i under the action of this group. 
+#
+`posets/orbit`:=proc(pg,i) local orb,n,pi;
+  orb:={i}; n:=0;
+  while nops(orb)>n do n:=nops(orb);
+    orb:={op(orb),seq(op(subs(pi,orb)),pi=pg)}
+  od; orb
+end:
+#
+# P &+ Q returns the ordinal sum of the posets P and Q. Similarly, one
+#  may use P &+ Q &+ R, etc. If one or more of the posets, say P, has
+#  isolated vertices, then one must use (P,X) &+ Q or (P,n) &+ Q,
+#  according to whether X or {1,...,n} is the vertex set of P.
+# The output will be a poset on the vertex set {1,2,...,m} for some m.
+#  Note that P &+ Q never has isolated vertices.
+# N.B.: rather than trap errors, we must return bad input unevaluated
+#  in order to avoid breaking certain Maple commands in V.3 or later.
+# It would be safer to name this `&o` or `&s`....
+#
+`posets/&+`:=proc() local P,X,i,j,k,n,X0,X1;
+  k:=0; n:=0; P:=table();
+  for i to nargs do
+    k:=k+1; P[k]:=args[i];
+    if not type(P[k],'set'('list')) then RETURN('procname(args)')
+      elif i=nargs or type(args[i+1],'set'('list')) then X:=map(op,P[k])
+      elif type(args[i+1],'set') then i:=i+1; X:=args[i]
+      elif type(args[i+1],'integer') then i:=i+1; X:={$1..args[i]}
+      else RETURN('procname(args)') fi;
+    if i=nargs then X1:={} else X1:=X minus map(e->e[1],P[k]) fi;
+    if i=1 then X0:={} else X0:=X minus map(e->e[2],P[k]) fi;
+    P[k]:=subs({seq(X[j]=n+j,j=1..nops(X))},[P[k],X0,X1]);    
+    n:=n+nops(X)
+  od;
+  if k=1 then P[1][1],n else
+    {seq(op(P[n][1]),n=1..k),
+      seq(seq(seq([i,j],i=P[n][3]),j=P[n+1][2]),n=1..k-1)} fi;
+end:
+#
+# plot_poset(P,<options>) plot the poset P using maple 2D graphics,
+#  or output a description of P in the DOT language <www.graphviz.org>.
+# The default layout algorithm uses 'filter' to arrange the vertices
+#  into levels, and then applies 'sort' to each level of vertices.
+#  The initial layout is then adjusted by `posets/layout` so that no
+#  vertex intersects the interior of an edge.
+#
+# The <options> may include any of the following in any order...
+#  proportional   use horizontal spacing between vertices that is inversely
+#                 proportional to the number of vertices in each level.
+#  levels=<list>  use the <list> to arrange the vertices into levels.
+#                 If the levels are sets, replace them with sorted lists.
+#  stretch=<num>  stretch the vertical axis by the given factor.
+#  ecolor=<color> use the specified color for edges (default=red).
+#  ecolor=<table> use the <table> to choose the color of each edge.
+#                 Edges of P not in the table are given the default color.
+#  vcolor=<color> use the specified color for vertices or their labels
+#                 (default=white in V.2 or V.3; black otherwise).
+#  labels         label the vertices, rather than plotting them as points.
+#  labels=<table> use the entries of <table> to produce a label for each
+#                 vertex (labels must be of type 'string').
+#  dot            print a description of P in the DOT language, ignoring
+#                 the 'proportional' and 'stretch' options.
+#  dot=<file>     do the same, but write the output to <file>.
+# For 'dot' plots, any option not in the above list is ignored.
+# For maple plots, all other options are passed to plots[display].
+#  Useful examples include title, font, symbol,...
+#
+# The main procedure is responsible only for parsing and sanitizing
+#  the input, and then passing the problem to the appropriate plotter.
+#
+`posets/plot_poset`:=proc(P) local X,F,C,lbl,eclr,vclr,i,x,v,opts,str;
+  if nargs>1 and type(args[2],'integer') then X:={$1..args[2]}; i:=3
+    elif nargs>1 and type(args[2],'set') then X:=args[2]; i:=3
+    else X:=map(op,P); i:=2 fi;
+  eclr:=eval(`posets/default`['ecolor'],1);
+  vclr:=eval(`posets/default`['vcolor'],1);
+  F:=false; str:=2.0; lbl:=false; C:=table();
+  opts:=['scaling'='constrained','axes'='none'];
+  for v in [args[i..nargs]] do
+    if op(1,v)='levels' then F:=op(2,v);
+      if X<>{op(map(op,F))} then
+        ERROR(`level partition does not match vertex set`) fi
+    elif op(1,v)='proportional' then str:=-str
+    elif op(1,v)='stretch' then str:=str*op(2,v)
+    elif op(1,v)='vcolor' then vclr:=op(2,v)
+    elif op(1,v)='ecolor' then
+      if type(op(2,v),'table') then C:=op(2,v) else eclr:=op(2,v) fi
+    elif op(1,v)='labels' then
+      if nops(v)>1 then lbl:=op(op(2,v));
+        for x in X do if not assigned(lbl[x]) then
+          ERROR(`missing vertex label(s)`) fi od
+        else lbl:=table([seq(x=convert(x,'string'),x=X)]) fi
+    elif op(1,v)='dot' then opts:=[op(v)]
+    elif opts[1]<>'dot' then opts:=[op(opts),v] fi
+  od;
+  C:=`posets/plot_poset/ct`(P,C,eclr);
+  if opts[1]='dot' then `posets/dotplot`(opts,C,X,F,vclr,lbl) else
+    if F=false then F:=posets['filter'](P,X) fi;
+    F:=map(y->if type(y,'set') then sort([op(y)]) else y fi,F);
+    `posets/plot_poset/2d`(P,X,F,str,vclr,C,lbl,opts)
+  fi
+end:
+#
+# Extract and sanitize the color/edge table.
+#
+`posets/plot_poset/ct`:=proc(P,C,eclr) local new,cols,Q,i;
+  cols:=map(op,[indices(C)]);
+  new:=traperror([seq(C[i] intersect P,i=cols),{}]);
+  if new=lasterror then ERROR(`invalid color table`) fi;
+  cols:=[op(cols),eclr]; Q:=P minus map(op,{op(new)});
+  if not member(eclr,cols,'i') then ERROR(`this cannot happen`) fi;
+  new:=subsop(i={op(Q),op(new[i])},new);
+  new:=zip((u,v)->if nops(v)>0 then [u,v] fi,cols,new);
+  sort(new,(u,v)->evalb(nops(u[2])>=nops(v[2])))
+end:
+#
+# Take the parsed input and make a Maple 2D plot
+#
+`posets/plot_poset/2d`:=proc(P,X,F,str,vclr,C,lbl) local r,pt,p,i,j;
+  if str<0 then r:=-str/nops(F);
+    pt:=[seq([seq((2*j-1)/i,j=1..i)],i=map(nops,F))]
+  else r:=str;
+    pt:=[seq([seq(2*j-i,j=1..i)],i=map(nops,F))] fi;
+  pt:=`posets/layout`(P,F,evalb(str<0),pt);
+  pt:=table([seq(i[1]=[1.0*i[2],r*i[3]],i=pt)]);
+  if type(lbl,'table') then
+    p:=plots['textplot']([seq([op(pt[i]),lbl[i]],i=X)],'color'=vclr)
+  else
+    p:=plot([seq(pt[i],i=X)],'color'=vclr,'style'='point') fi;
+  p:=p,seq(plot({seq([pt[i[1]],pt[i[2]]],i=j[2])},'color'=j[1]),j=C);
+  plots['display']({p},op(args[8]))
+end:
+#
+# Posets(n) returns a list of all nonisomorphic posets on {1,...,n}.
+# The posets are naturally labeled--every relation [i,j] satisfies i<j.
+# If <property> is a procedure that accepts a poset as input,
+# and returns true or false for output, then Posets(n,<property>)
+# returns the sublist of posets that satisfy <property>.
+# Any additional arguments will be passed on to <property>.
+#
+`posets/Posets`:=proc(n)
+  if not type(n,'posint') then
+    ERROR(`first argument must be a positive integer`)
+  elif nargs=1 then
+    `posets/Posets/lib`(n)
+  else
+    map(proc(P,f) if f(P,args[3..nargs]) then P fi end,
+      `posets/Posets/lib`(n),args[2..nargs])
+  fi
+end:
+#
+# This code is specific to the vanilla edition
+#
+`posets/Posets/lib`:=proc(n) local pl,P,c,i;
+  if n=1 then [{}]
+    elif n=2 then [{},{[1,2]}]
+    elif n<=8 then
+      pl:=zip((x,y)->[x,[0,op(y)]],procname(n-1),`posets/pcodes`[n]);
+      [seq(seq({op(P[1]),seq([i,n],
+        i=`posets/Posets/getset`(abs(c)))},c=P[2]),P=pl)]
+    else ERROR(`input too large`)
+  fi
+end:
+#
+`posets/Posets/getset`:=proc(m) local r,A; option remember;
+  if m=0 then {} else 
+    A:=map(x->x+1,procname(iquo(m,2,'r')));
+    if r=1 then {1,op(A)} else A fi
+  fi
+end:
+#
+# P &* Q returns the direct product of the posets P and Q. Similarly, one
+#  may use P &* Q &* R, etc. If any of the posets, say P, has isolated
+#  vertices, then one must use the syntax (P,X) &* Q or (P,n) &* Q,
+#  according to whether X or {1,...,n} is the vertex set of P.
+# The output will be a poset on the vertex set {1,2,...,m} for some m.
+#  If all of the arguments are of the form (P,X) or (P,n), then the
+#  output will also be of this form.
+# N.B.: rather than trap errors, we must return bad input unevaluated
+#  in order to avoid breaking certain Maple commands in V.3 or later.
+# It would be safer to name this `&p`....
+#
+`posets/&*`:=proc() local flag,P,Q,X,Y,n,i,j,x,e;
+  flag:=true; n:=1; Q:={};
+  for i to nargs do P:=args[i];
+    if not type(P,'set'('list')) then RETURN('procname(args)')
+      elif i=nargs or type(args[i+1],'set'('list')) then
+        flag:=false; X:=map(op,P)
+      elif type(args[i+1],'set') then i:=i+1; X:=args[i]
+      elif type(args[i+1],'integer') then i:=i+1; X:={$1..args[i]}
+      else RETURN('procname(args)') fi;
+    Y:=[seq(seq([j,x],j=1..n),x=X)];
+    Y:=table([seq(op(Y[j])=j,j=1..nops(Y))]);
+    Q:={seq(seq([Y[e[1],x],Y[e[2],x]],x=X),e=Q),
+      seq(seq([Y[j,e[1]],Y[j,e[2]]],j=1..n),e=P)};
+    n:=n*nops(X);
+  od;
+  if flag then Q,n else Q fi;
+end:
+#
+# rand_poset(n) generates a random poset on n vertices, by flipping a fair
+#  coin to decide whether [i,j] should be a relation, for 1 <= i < j <= n.
+#  Then the covering relation of the transitive closure is returned.
+# rand_poset(n,p) does the same, except using a biased coin for which the
+#  probability of including the edge [i,j] is p (0<p<1).
+# rand_poset(n,coin) does the same, using the procedure coin()
+#  to generate coin tosses (1==include edge; anything else==no edge).
+#
+`posets/rand_poset`:=proc(n) local coin,i,j,bias,P;
+  coin:=proc(x,p) if rand()<p then x fi end;
+  if nargs=1 then bias:=0.5*10^12
+    elif type(args[2],'numeric') then bias:=args[2]*10^12
+    elif type(args[2],'procedure') then bias:=args[2];
+      coin:=proc(x,f) if f()=1 then x fi end;
+    else ERROR(`second argument must be numeric or a procedure`)
+  fi;
+  P:={seq(seq(coin([i,j],bias),j=i+1..n),i=1..n)};
+  posets['covers'](P,[$1..n]);
+end:
+#
+# ranked(P,X) returns true/false if the poset P with vertex set X is/not
+#  ranked; i.e., there exists an integer-valued function r() on X such
+#  that r(y)-r(x)=1 for all (covering) relations [x,y] in P.
+# ranked(P,n) does the same, if X={1,...,n}.
+# ranked(P) does the same, disregarding any isolated vertices of P.
+# ranked(P,X,'R') does the same, and if the result is true,
+#  then R is assigned a partition [X_0,X_1,...,X_r] of X into ranks.
+# ranked(P,n,'R') and ranked(P,'R') operate similarly. 
+#
+`posets/ranked`:=proc() local P,X,n,e,res,u,v,rk,i,r,a;
+  n:=nargs; if type(args[n],'name') then n:=n-1 fi;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=1 then X:=map(op,args[1])
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  n:=nops(X); res:=[seq(a[i],i=1..n)];
+  P:=subs({seq(X[i]=i,i=1..n)},args[1]);
+  for e in P do
+    i:=res[e[2]]-res[e[1]]-1;
+    if i=0 then next elif type(i,'integer') then RETURN(false) fi;
+    u:=indets(res[e[1]])[1]; v:=indets(res[e[2]])[1];
+    i:=subs(u=0,v=0,i);
+    if i>0 then res:=subs(u=v+i,res) else res:=subs(v=u-i,res) fi;
+  od;
+  if not type(args[nargs],'name') then RETURN(true) fi;
+  res:=subs({seq(v=0,v=indets(res))},res);
+  r:=max(op(res),-1); rk:=table([seq(i=NULL,i=0..r)]);
+  for i to n do rk[res[i]]:=rk[res[i]],X[i] od;
+  assign(args[nargs],[seq({rk[i]},i=0..r)]); true
+end:
+#
+# rm_isom(L) removes extra isomorphic copies from a list (or set) L of 
+# of directed graphs. Isolated vertices are ignored for the purpose of
+# isomorphism testing. If L is a list, the result returned will be the
+# sublist of L formed by the earliest instance of each isomorphism class
+# in the list. If L is a set, the result will be a subset of L.
+#
+# We use the invariants associated with the fast discriminant as a hash
+# function that sorts graphs into buckets.
+# As soon as a bucket contains 3 or more graphs, the presumption is that
+# we are better off using 'canon' to distinguish the graphs; for a bucket
+# of two, we use 'isom'. For a singleton, we don't need to do anything.
+#
+# Note that before a bucket overflows, it is stored as a list of indices j,
+# and can[j] holds the canonical vertex partition provided by 'fastdisc'.
+# After overflow, it gets converted to a *set* of indices j and can[j]
+# holds the canonical relabeling of the graph.
+#
+# Haven't tested for the actual cross-over point between isom versus canon.
+# It could be at bucket sizes > 3.
+#
+`posets/rm_isom`:=proc(L) local can,bckt,i,j,mu,shp,J,P,new,u,q;
+  can:=table(); bckt:=table('sparse');
+  for i to nops(L) do
+    mu:=`posets/fastdisc`(L[i],[map(op,L[i])]);
+    shp:=`posets/separate`(L[i],mu,q);
+    shp:=map(x->[x[1],nops(x[2])],shp);
+    J:=bckt[shp]; if J=0 then J:=[] fi;
+    if type(J,'set') then
+      P:=`posets/canorder`(L[i],mu,0)[1]; new:=i;
+      for j in J do if can[j]=P then new:=NULL; break fi od;
+      if new=i then can[i]:=P; bckt[shp]:={op(J),i} fi;
+    else
+      J:=[op(J),i]; can[i]:=mu;
+      if nops(J)>=3 then # the bucket is too full
+        new:=`posets/rm_isom/overflow`(J,L,can);
+        for u in new do can[u[1]]:=u[2] od;
+        J:=map(x->op(1,x),new)
+      fi;
+      bckt[shp]:=J
+    fi;
+  od;
+  new:=map(`posets/rm_isom/final`,[entries(bckt)],L,can);
+  if type(L,'set') then {seq(L[i],i=new)}
+    else [seq(L[i],i=sort(new))] fi
+end:
+#
+# Clean out the overflowing bucket; note that it is important
+# that the return value is a *set* of pairs [j,P]. 
+#
+`posets/rm_isom/overflow`:=proc(J,L,can) local lg,res,j,P;
+  lg:=NULL; res:=NULL;
+  for j in J do
+    P:=`posets/canorder`(L[j],can[j],0)[1];
+    if not member(P,[lg]) then lg:=lg,P; res:=res,j fi
+  od;
+  res:=zip((x,y)->[x,y],[res],[lg]); {op(res)}
+end:
+#
+# Empty out the buckets: if there are any doubletons
+# remaining that never overflowed, deal with them.
+#
+`posets/rm_isom/final`:=proc(J,L,can) local oJ,pi;
+  oJ:=op(J);
+  if nops(oJ)<>2 or type(oJ,'set') then RETURN(op(oJ)) fi;
+  pi:=`posets/cisom`(L[oJ[1]],can[oJ[1]],L[oJ[2]],can[oJ[2]]);
+  if pi=NULL then op(oJ) else oJ[1] fi;
+end:
+#
+# Refine the vertex partition mu of digraph G so that vertices in the
+# same block have the same "separation" invariant: for vertex x, this is
+#   number of edges x -> block j
+#   number of edges x <- block j
+# If a third argument is a variable z, then the return value is a list
+# of pairs [g,A], where A is block of the new vertex partition, and g
+# is the value of its separation invariant, expressed as a Laurent poly
+# in the variable z.
+#
+`posets/separate`:=proc(G,mu) local B,f,i,j,e,q,nu;
+  B:=table([seq(seq(j=i,j=mu[i]),i=1..nops(mu))]);
+  f:=table('sparse'); if nargs>2 then q:=args[3] fi;
+  for e in G do
+    f[e[1]]:=f[e[1]]+q^(-B[e[2]]);
+    f[e[2]]:=f[e[2]]+q^B[e[1]];
+  od;
+  nu:=map(`posets/separate/one`,mu,f);
+  if nargs>2 then [seq([f[i[1]],i],i=nu)] else nu fi;
+end:
+#
+# Refine a particular block using the invariant data in the table f:
+# We must return a canonically ordered sequence of subsets of X such
+# that u,v appear in the same subset iff they have the same invariant.
+#
+# Currently, the canonical order is derived from 'tcoeff'.
+# Possibly other sorting orders will give nicer results.
+#
+`posets/separate/one`:=proc(X,f) local pi,i,t,g,l;
+  if nops(X)=1 then RETURN(X) fi;
+  pi:=table('sparse');
+  for i in X do l:=f[i]; pi[l]:=pi[l]+t[i] od;
+  g:=map(op,[indices(pi)]);
+  g:=sort(g,(x,y)->evalb(tcoeff(y-x)>0));
+  seq(map(op,indets(pi[i])),i=g);
+end:
+#
+# Given a directed graph G with vertex set X, return the partition
+#  of X induced by the strongly connected components of G.
+# If a third argument is present, it is assigned the acyclic digraph Q
+#  induced on the components: if there is an edge [x,y] involving
+#  a vertex x from component i and a vertex y from a component j<>i,
+#  then [i,j] is an edge of Q.
+# The components of the partition are listed in an order consistent with G:
+#  if [i,j] is an edge of Q, then i < j (as integers).
+#
+# Example:
+#   C:=strongcomps(G,X,'Q');
+#   P:=posets['covers'](Q);
+#   posets['plot_poset'](P,nops(C),labels);
+#
+`posets/strongcomps`:=proc(G) local X,down,x,C,cof,F,Q,i,alive,m;
+  m:=nargs; if type(args[m],'name') then m:=m-1 fi;
+  if m=1 then X:=map(op,G)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2]
+  fi;
+  down:=`posets/coversets`(G,X,0); # the 0 asks for loops
+  for x in X do down[x]:=`posets/strongcomps/sat`(x,down) od;
+  C:=table(); alive:=X;
+  for i while nops(alive)>0 do
+    F:=down[alive[1]]; m:=nops(F);
+    F:=map(proc(x,Y,z) if nops(Y[x])=z then x fi end,F,down,m);
+    C[i]:=F,m; alive:=alive minus F;
+  od;
+  C:=map(y->y[1],sort([entries(C)],(u,v)->evalb(u[2]<=v[2])));
+  if type(args[nargs],'name') then
+    cof:=table([seq(seq(x=i,x=C[i]),i=1..nops(C))]);
+    Q:=map((x,Y)->[Y[x[1]],Y[x[2]]],G,cof);
+    Q:=map(x->if x[1]<>x[2] then x fi,Q);
+    assign(args[nargs],Q);
+  fi; C
+end:
+#
+# Given a table of down-neighbors, generate the set of
+# all vertices reachable from x by a downward path.
+#
+`posets/strongcomps/sat`:=proc(x,down) local old,new,y;
+  old:={x}; new:=down[x];
+  while nops(new)>nops(old) do
+    old:=new; new:={seq(op(down[y]),y=old)}
+  od; new
+end:
+#
+# subinterval(P,[a,b]) returns the subposet of P formed by the
+#  vertices x such that a <= x <= b.
+# subinterval(P,[a,infinity]) does the same for all vertices >= a.
+# subinterval(P,[-infinity,b]) does the same for all vertices <= b.
+#
+`posets/subinterval`:=proc(P) local n,i,X,down,x,new,Q;
+  n:=nargs; i:=args[n]; n:=n-1;
+  if n>2 then ERROR(`invalid arguments`)
+    elif n=1 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  if i[1]<>-infinity then
+    Q:=[procname(posets['dual'](P),X,[-infinity,i[1]])];
+    if nops(Q)>0 then
+      Q:=subsop(1=posets['dual'](Q[1]),Q);
+      procname(op(Q),[-infinity,i[2]]) fi
+  elif i[2]=infinity then args[1..n]
+  elif member(i[2],X) then 
+    down:=`posets/coversets`(P,X);
+    X:={}; new:={i[2]};
+    while nops(new)>0 do
+      X:={op(X),op(new)};
+      new:={seq(op(down[x]),x=new)}
+    od;
+    Q:=map(proc(e,Y) if member(e[2],Y) then e fi end,P,X);
+    if nops(Q)>0 then Q else {},X fi
+  fi
+end:
+#
+# subposet(P,X,Y) returns the subposet of (P,X) induced by a
+#  subset Y of X, and similarly subposet(P,n,Y) (if X={1,...,n})
+#  and subposet(P,Y) (if there are no isolated points).
+# It would be nice if the final loop over Y was in natural order,
+#  but the extra cost of arranging this is probably prohibitive.
+#
+`posets/subposet`:=proc(P) local F,i,n,X,Y,down,x,y;
+  Y:=args[nargs];
+  if nargs=2 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  if nops(Y minus X)>0 then ERROR(`invalid arguments`)
+    elif nops(Y)<2 then RETURN({}) fi;
+  X:=map(op,posets['filter'](P,X));
+  down:=`posets/coversets`(P,X);
+  n:=nops(X); while not member(X[n],Y) do n:=n-1 od;
+  for i while not member(X[i],Y) do od; X:=[op(i..n,X)];
+  for x in X do down[x]:={op(down[x]),seq(op(down[y]),y=down[x])} od;
+  for x in Y do
+    F:=down[x] intersect Y;
+    down[x]:=F minus {seq(op(down[y]),y=F)}
+  od;
+  {seq(seq([y,x],y=down[x]),x=Y)}
+end:
+#
+# W(P,X,q,t) returns the W-polynomial of a poset P with vertex set X,
+#  evaluated at (q,t).
+# W(P,n,q,t) does the same, using X={1,...,n}.
+# W(P,q,t) does the same, assuming P has no isolated vertices.
+# W(P,X,q,t,S), where S is a subset of the cover relations of P, returns
+#  the W-polynomial relative to a labeling in which descents occur at S.
+# W(P,n,q,t,S), W(P,q,t,S) function similarly.
+# All of the above calling sequences can have the optional string 'ideals'
+#  or 'linear' appended. The former selects an algorithm that is quadratic
+#  in the number of order ideals, the latter is linear in the number of
+#  linear extensions.
+#
+`posets/W`:=proc(P) local main,flag,V,X,k,q,t,n,Q;
+  V:={}; flag:=0; main:=`posets/W/`;
+  for k from nargs by -1 to 3 do
+    if type(args[k],'set') then V:=args[k]
+      elif args[k]='linear' then flag:=-1
+      elif args[k]='ideals' then flag:=1
+      elif args[k]='omega' then main:=`posets/omega/`
+      else break
+    fi
+  od;
+  t:=args[k]; k:=k-1;
+  if main=`posets/omega/` then q:=NULL; else q:=args[k]; k:=k-1 fi;
+  if k>2 then ERROR(`invalid arguments`)
+    elif k=1 then X:=map(op,P)
+    elif type(args[2],'integer') then X:={$1..args[2]}
+    else X:=args[2] fi;
+  Q:=(P minus V) union map(x->[x[2],x[1]],V);
+  n:=nops(X); X:=map(op,posets['filter'](Q,X));
+  if nops(X)<>n then
+    ERROR(`not an admissible subset`)
+  elif q=1 and t=1 then
+    `posets/W/count`(P,n)
+  elif flag>0 or (flag=0 and n>6) then
+    X:=map(op,posets['filter'](P,{op(X)}));
+    cat(main,'ideals')(P,X,V,q,t)
+  else
+    Q:=subs({seq(X[k]=k,k=1..n)},P);
+    cat(main,'linear')(Q,{$1..n},0,1,q,t) fi;
+end:
+#
+`posets/W/linear`:=proc(P,X,x0,m0,q,t) local top,x,m,Q,f;
+  if nops(X)=0 then RETURN(m0) fi;
+  top:=X minus map(e->op(1,e),P); f:=0;
+  for x in top do
+    if x>x0 then m:=q^nops(X)*t*m0 else m:=m0 fi;
+    Q:=map(proc(e,y) if e[2]<>y then e fi end,P,x);
+    f:=f+procname(Q,X minus {x},x,m,q,t);
+  od; f
+end:
+#
+`posets/W/ideals`:=proc(P,X,V,q,t) local down,R,f,n;
+  n:=nops(X);
+  if 2*nops(V)>nops(P) or n=0 then
+    down:=`posets/labtab`(P,X,V,'R');
+    f:=`posets/flagtool`(down,R,(r,w,z)->z/w^r,(r,w,z)->1-z/w^r,q,q^n*t);
+  else
+    down:=`posets/labtab`(P,X,P minus V,'R');
+    f:=t*`posets/flagtool`(down,R,1,(r,w,z)->z/w^r-1,q,q^n*t);
+  fi;
+  expand(q^n*f)
+end:
+#
+# Special voodoo for fast counting of extensions (q=t=1).
+#
+`posets/W/count`:=proc(P,n) local X,up,m,j,ct;
+  X:=map(op,P); up:=posets['J'](P,X,'table');
+  m:=nops([indices(up)]); up[m]:=1;
+  while m>1 do
+    m:=m-1; ct:=0;
+    for j in up[m] do ct:=ct+up[j] od; up[m]:=ct;
+  od;
+  for m from nops(X)+1 to n do up[1]:=m*up[1] od; up[1]
+end:
+#
+# zeta(P,X,z) returns the zeta polynomial of a poset P with vertex
+#  set X in the variable z.
+# zeta(P,n,z) does the same, using X={1,...,n}.
+# zeta(P,z) does the same, assuming there are no isolated points.
+#
+`posets/zeta`:=proc() local n,f,g,z,q;
+  z:=args[nargs]; n:=nargs-1;
+  if n>2 then ERROR(`invalid arguments`) fi;
+  g:=posets['chains'](args[1..n],q);
+  n:=degree(g,q); f:=coeff(g,q,max(n,1));
+  while n>1 do f:=(z-n)*f; n:=n-1; f:=coeff(g,q,n)+expand(f)/n od; f
+end:
+#
+# A library of posets with <= 8 vertices and lattices with <= 10 
+# vertices, stored in a highly compressed format.
+#
+`posets/pcodes`:=table([
+(3)=[[3],[1,2]],
+(4)=[[7],[1,-3,4],[4,6],[1,2,6],[2,4]],
+(5)=[[15],[1,-3,-7,8],[8,9,12],[1,2,4,8,-10,12],[1,3,4,12],[4,8],[14],[10],
+[1,2,4,-6,8],[8,14],[1,2,14],[4,8,12],[1,2,-6,8],[8,12],[1,2,4,12],[4,8]],
+(6)=[[31],[1,-3,-7,-15,16],[16,17,-19,24],[1,2,8,16,-18,-22,24],[1,3,4,5,
+8,16,20,24],[1,3,7,8,24],[8,16],[24,28],[8,16,20],[1,2,4,10,-12,20],[1,4,
+8,-12,16],[16,24,28],[1,2,4,8,28],[4,8,-24,28],[8,16,24],[8,16,-18,20],[1,
+2,4,8,12,16,20],[1,2,4,8,-12,16],[16,17,20,28],[1,2,4,16,18,20,28],[1,3,4,
+12,28],[4,8,16,24],[1,4,12,16],[16,24],[1,4,8,24],[8,16],[30],[1,2,4,-5,
+-6,-12,-14,16],[16,26],[1,2,-10,16],[16,18,20,24],[1,4,8,16,-20,24],[1,2,
+4,8,16,-20,24],[4,8,16,-17,-18,24],[1,2,4,5,6,8,24],[8,16],[30],[8,16,22],
+[1,2,-6,8,-9,-10,-14,16],[16,30],[1,2,30],[2,4,16,28],[1,2,-6,-14,16],[16,
+28],[24],[4,16,20],[1,2,4,8,-12,16],[16,17,18,24],[1,2,8,16,18,24],[2,4,8,
+16,-20,24],[1,2,6,8,24],[8,16],[28],[16,20],[1,2,4,8,-12,16],[16,28],[4,
+16,28],[1,2,4,28],[8,16,24],[1,2,4,-12,16],[16,24],[1,2,4,8,24],[8,16]],
+(7)=[[63],[1,-3,-7,-15,-31,32],[32,33,-35,-39,48],[1,2,16,32,-34,-38,-46,
+48],[1,3,4,5,12,16,32,36,44,48],[1,3,7,8,9,11,16,32,40,48],[1,3,7,15,16,
+48],[16,32],[48,49,56],[16,32,33,40],[1,2,8,16,-17,18,-24,32,-34,-38,40],
+[1,3,4,5,8,20,21,24,40],[1,8,16,-24,32],[32,48,-50,56],[1,2,8,16,48,56],
+[4,8,16,-48,-52,56],[16,32,48],[16,32,-34,-38,40],[1,2,4,8,16,18,20,24,32,
+36,40],[1,2,3,6,8,16,18,24,32,40],[1,2,8,16,-24,32],[32,33,36,40,48,52,56],
+[1,2,4,8,16,32,34,36,40,48,52,56],[1,3,4,5,8,16,20,24,48,52,56],[4,8,16,
+32,33,40,48,56],[1,2,6,8,16,20,24,48,56],[8,16,32,48],[16,32,36,40],[1,4,
+8,16,20,24,32,40],[1,4,8,16,24,32],[32,33,35,40,56],[1,2,8,32,34,38,40,56],
+[1,3,4,5,8,24,32,36,40,56],[1,3,7,8,24,56],[8,16,32,48],[1,8,24,32],[32,
+48],[1,8,16,48],[16,32],[60],[1,4,36],[1,-3,4,8,-9,-12,-24,-28,32],[32,52],
+[1,4,8,16,52],[16,32,36],[1,4,8,16,-20,32],[32,33,34,36,52],[1,2,4,32,52],
+[2,4,8,16,32,40,-48,52],[4,16,32,-40,48],[1,4,-12,-20,52],[1,2,4,8,16,18,
+20,32,48],[1,2,4,-20,32],[32,36,40,48],[1,2,8,16,32,-40,48],[1,4,8,16,32,
+-40,48],[8,16,32,-33,-36,48],[1,3,4,8,9,12,16,48],[16,32],[60],[32,44],[1,
+2,4,8,16,32,-34,36],[1,2,-3,4,8,-10,-12,16,-17,-18,-20,-24,-28,32],[32,60],
+[1,2,4,8,60],[2,4,8,32,60],[4,8,32,56],[16,32,52],[1,2,-3,4,8,-10,-12,-24,
+-28,32],[32,60],[8,32,56],[16,32,-48,52],[1,4,8,32,36],[1,-3,4,8,-10,-12,
+-24,-28,32],[32,56],[32,48],[8,32,40],[1,2,4,8,16,-24,32],[32,48,52],[1,2,
+4,8,16,52],[16,32,-34,36],[1,2,4,8,16,20,32,36],[1,2,4,8,16,-20,32],[32,
+33,34,36,40,48,52],[1,2,4,8,16,32,34,36,40,48,52],[2,4,8,16,32,33,36,40,
+48,52],[4,32,40,48],[4,8,16,32,34,36,48,52],[1,2,4,8,16,20,32,48],[4,16,
+32,36],[1,2,4,8,16,20,32],[32,33,34,36,40,48],[1,2,4,8,16,32,36,40,48],[2,
+16,32,36,-40,48],[2,4,8,16,32,-40,48],[2,8,16,32,-34,-36,48],[1,2,3,4,8,
+10,12,16,48],[16,32],[48,60],[16,32,33,36,44],[1,2,4,16,17,18,20,32,34,36,
+44],[1,4,8,16,24,32,40],[1,3,4,12,16,17,20,28,32],[32,48,60],[1,2,4,16,48,
+60],[4,16,48,60],[8,16,32,48,56],[16,32,34,36,44],[1,2,4,16,18,20,32,36,
+44],[1,2,4,8,16,24,32,40],[1,2,3,4,12,16,18,20,28,32],[32,33,36,60],[1,2,
+4,32,34,36,60],[1,3,4,12,60],[4,8,32,40,56],[1,4,16,20,32,48],[1,3,4,12,
+28,32],[32,48,56],[1,4,8,16,48,56],[16,48],[16,32,40],[1,4,8,16,24,32],
+[32,33,36,48],[1,2,4,16,32,34,36,48],[4,8,16,32,40,48],[1,3,4,12,16,48],
+[16,32],[56],[32,40],[1,4,8,16,-24,32],[32,56],[2,8,32,56],[1,4,8,56],[16,
+32,48],[1,4,8,-24,32],[32,48],[1,4,8,16,48],[16,32],[62],[1,2,4,-5,-6,-12,
+-13,-14,-28,-30,32],[32,33,34,36,-38,-44,48],[1,4,16,32,34,-36,-44,48],[1,
+2,4,16,32,-36,-44,48],[4,8,16,32,-33,-34,-40,-41,-42,48],[1,2,4,5,8,9,12,
+16,32,34,40,42,48],[1,2,4,5,6,8,9,10,12,16,32,40,48],[1,2,4,12,16,32,33,
+34,48],[1,2,4,5,6,12,13,14,16,48],[16,32],[58],[42],[1,2,-5,-6,-10,16,-17,
+-18,-26,32],[32,33,34,48],[1,4,16,32,34,-40,48],[1,2,4,8,16,32,-36,-40,48],
+[1,2,5,6,10,16,48],[16,32],[48,56],[16,32,36,40],[1,2,4,8,20,-24,40],[1,2,
+4,8,16,-24,32,-34,40],[1,2,4,8,16,-24,32],[32,48,56],[1,2,4,8,16,56],[8,
+16,32,-48,56],[16,32,48],[16,32,40],[1,2,4,8,24,40],[1,2,4,8,16,-24,32],
+[32,48,56],[4,8,16,32,56],[1,2,4,8,16,56],[8,16,32,-48,56],[16,32,48],[16,
+32,-36,40],[1,2,4,8,16,24,32,40],[1,2,4,8,16,-24,32],[32,48,56],[1,2,4,8,
+16,48,56],[16,32,48],[16,32,-34,40],[1,2,8,24,40],[1,2,4,8,16,17,24,32,40],
+[1,2,4,8,16,-24,32],[32,33,34,36,40,56],[1,8,32,34,36,40,56],[1,2,4,8,32,
+36,40,56],[1,4,8,32,33,34,40,56],[1,2,4,8,24,32,34,40,56],[1,2,4,5,6,8,24,
+56],[8,16,32,48],[1,2,4,8,24,32],[32,48],[1,2,4,8,16,48],[16,32],[62],[1,
+2,-6,8,-9,-10,-14,-24,-25,-26,-30,32],[32,54],[2,54],[2,32,38],[1,2,-6,8,
+-9,-10,16,-17,-18,-22,32],[32,33,34,-38,40,-41,-42,48],[1,2,8,16,32,34,
+-40,-42,48],[2,4,8,16,32,-36,-40,-44,48],[1,2,6,8,9,10,16,32,40,48],[8,16,
+32,-33,-34,-38,48],[1,2,8,9,10,16,32,34,38,48],[1,2,4,8,10,12,16,32,36,48],
+[1,2,6,8,9,10,14,16,48],[16,32],[62],[16,32,46],[1,2,-6,-14,16,-17,-18,
+-22,-30,32],[32,62],[1,2,62],[2,4,32,60],[1,2,-6,-14,-30,32],[32,60],[4,
+16,60],[8,56],[4,16,32,44],[1,2,4,-6,-12,16,-20,-28,32],[32,33,34,-38,48],
+[1,2,16,32,34,-38,48],[2,4,16,32,-36,-44,48],[1,2,6,8,10,16,32,40,48],[1,
+2,6,14,16,48],[16,32],[60],[44],[1,2,4,-6,8,-12,16,-17,-18,-20,-24,-28,32],
+[32,56],[1,2,8,-24,32],[32,52],[32,48],[4,32,36],[1,2,4,8,16,-20,32],[32,
+33,34,36,40,48],[1,2,4,8,16,32,36,40,48],[2,4,8,16,32,-36,40,48],[4,16,32,
+-34,-40,48],[4,8,16,32,-36,48],[1,2,4,6,8,12,16,48],[16,32],[48,56],[16,
+32,40],[1,2,8,16,-24,32,40],[1,2,4,8,16,-20,-24,32,-36,40],[1,2,8,16,-24,
+32],[32,48,56],[1,2,8,16,48,56],[4,8,16,32,48,56],[16,32,48],[16,32,40],
+[1,2,4,8,20,-24,40],[1,2,8,16,-24,32],[32,48,56],[1,2,4,8,16,48,56],[8,16,
+-48,56],[16,32,48],[16,32,-36,40],[1,2,4,8,16,24,32,40],[1,2,4,8,16,-24,
+32],[32,33,34,40,56],[1,8,32,34,40,56],[1,2,4,8,32,36,40,56],[1,2,6,8,24,
+56],[8,16,32,48],[1,2,8,24,32],[32,48],[1,2,8,16,48],[16,32],[60],[1,2,4,
+8,-9,-10,-12,-24,-28,32],[32,52],[4,36],[1,2,4,8,16,-20,32],[32,36,40,48],
+[1,8,16,32,-40,48],[1,2,4,8,16,32,-40,48],[1,4,8,16,32,-40,48],[8,16,32,
+-33,-36,48],[1,2,4,8,9,10,12,16,48],[16,32],[60],[16,32,44],[1,2,4,-12,16,
+-17,-18,-20,-28,32],[32,60],[8,32,56],[4,16,32,44],[1,2,4,-12,16,-18,-20,
+-28,32],[32,60],[1,4,32,60],[1,2,4,60],[4,8,32,56],[1,2,4,-12,-28,32],[32,
+56],[48],[8,32,40],[1,2,4,8,16,-24,32],[32,33,34,36,48],[1,16,32,48],[1,2,
+4,16,32,36,48],[1,4,8,16,32,-40,48],[1,2,4,12,16,48],[16,32],[56],[40],[1,
+2,4,8,16,-24,32],[32,56],[8,32,56],[1,8,32,56],[1,2,4,8,56],[16,32,48],[1,
+2,4,8,-24,32],[32,48],[1,2,4,8,16,48],[16,32]],
+(8)=[[127],[1,-3,-7,-15,-31,-63,64],[64,65,-67,-71,-79,96],[1,2,32,64,-66,
+-70,-78,-94,96],[1,3,4,5,12,32,64,68,76,92,96],[1,3,7,8,9,11,24,25,32,64,
+72,88,96],[1,3,7,15,16,17,19,23,32,64,80,96],[1,3,7,15,31,32,96],[32,64],
+[96,97,-99,112],[32,64,65,-67,80],[1,2,16,32,-33,34,-48,64,-66,-70,-78,80],
+[1,3,4,5,12,16,32,33,35,36,37,44,48,64,68,76,80],[1,3,7,8,9,11,16,40,41,
+43,48,80],[1,16,32,-48,64],[64,96,-98,-102,112],[1,2,16,32,96,-98,112],[4,
+16,32,-96,-100,-108,112],[32,64,96],[32,64,-66,-70,-78,80],[1,2,4,16,32,
+34,36,48,64,68,76,80],[1,2,3,6,8,9,10,16,32,34,38,40,42,48,64,72,80],[1,2,
+3,6,7,14,16,32,34,38,48,64,80],[1,2,16,32,-48,64],[64,65,68,80,96,100,108,
+112],[1,2,4,16,32,64,66,68,80,96,100,108,112],[1,3,4,5,12,16,32,36,48,96,
+100,108,112],[4,8,16,32,64,65,72,80,96,104,112],[1,2,6,8,9,10,16,32,36,40,
+48,96,104,112],[1,16,32,36,48,96,112],[16,32,64,96],[32,64,68,76,80],[1,4,
+8,16,32,36,40,48,64,72,80],[1,3,4,5,12,16,32,36,44,48,64,80],[1,4,16,32,
+48,64],[64,65,67,72,73,80,96,104,112],[1,2,8,16,32,64,66,70,72,74,80,96,
+104,112],[1,3,4,5,8,9,12,16,32,40,48,64,68,72,76,80,96,104,112],[1,3,7,8,
+9,11,16,32,40,48,96,104,112],[8,16,32,64,65,67,80,96,112],[1,2,8,9,10,16,
+32,40,48,64,66,70,80,96,112],[1,3,4,5,12,13,16,32,40,48,96,112],[16,32,64,
+96],[32,64,72,80],[1,8,16,32,40,48,64,80],[1,8,16,32,48,64],[64,65,67,71,
+80,112],[1,2,16,64,66,70,78,80,112],[1,3,4,5,12,16,48,64,68,76,80,112],[1,
+3,7,8,9,11,16,48,64,72,80,112],[1,3,7,15,16,48,112],[16,32,64,96],[1,16,
+48,64],[64,96],[1,16,32,96],[32,64],[112,120],[1,8,16,-48,64,65,72],[1,2,
+-3,-6,8,18,-24,-56,72],[1,-3,8,16,-17,-24,-48,-56,64],[64,96,104],[1,8,16,
+32,96,104],[32,64,65,72],[1,2,8,16,32,-33,34,-40,64,-66,-70,72],[1,8,16,
+32,-40,64],[64,65,66,72,80,96,-98,104],[1,2,8,16,32,64,-80,96,104],[2,4,8,
+16,32,64,80,-96,-100,104],[8,32,64,-80,96],[8,16,32,64,-65,66,-72,96,104],
+[1,2,3,6,8,16,17,18,24,32,34,40,96,104],[1,4,8,16,20,-24,32,-34,-36,-40,
+-96,-100,104],[1,2,8,16,32,34,40,64,96],[32,64,-66,-70,72],[1,2,4,8,16,32,
+34,36,40,64,68,72],[1,2,3,6,8,16,17,18,24,32,34,40,64,72],[1,2,8,16,32,
+-40,64],[64,65,67,68,69,72,84,88,104],[1,2,4,8,64,66,68,72,84,88,104],[1,
+3,4,5,8,20,24,40,64,68,72,84,88,104],[4,8,16,32,64,65,72,80,81,88,96,104],
+[1,2,4,5,6,8,16,17,18,20,24,32,36,40,64,66,72,80,82,88,96,104],[8,32,64,
+80,96],[1,4,8,20,24,40,64,65,67,72,104],[1,2,3,6,8,22,24,40,104],[1,4,8,
+16,24,32,36,40,64,96],[1,4,8,40,64],[64,72,80,96],[1,2,16,32,64,-80,96],
+[1,8,16,32,64,-80,96],[16,32,64,-65,-72,96],[1,3,8,16,17,24,32,96],[32,64],
+[112,120],[64,80,88],[1,2,8,16,32,-48,64,-66,-70,72],[1,2,3,4,5,6,8,16,18,
+20,24,32,33,34,36,40,48,56,64,68,72],[1,2,-3,-6,8,16,-18,-24,32,-33,-34,
+-40,-48,-56,64],[64,120],[1,2,8,16,120],[2,4,8,16,64,120],[8,16,64,112],
+[32,64,96,104],[1,2,8,16,-48,64,-66,-70,72],[1,2,-3,-6,8,16,-18,-24,-48,
+-56,64],[64,-112,120],[8,16,-112,120],[16,64,112],[32,64,-96,-100,104],[1,
+4,8,16,48,64,68,72],[1,3,4,5,8,16,18,20,24,48,56,64,72],[1,-3,4,-5,8,16,
+-18,-20,-24,-48,-56,64],[64,112],[64,96],[16,64,80],[1,2,8,16,32,-48,64],
+[64,96,-98,104],[1,2,8,16,32,96,104],[32,64,-66,-70,72],[1,2,4,8,16,32,34,
+36,40,64,68,72],[1,2,3,6,8,16,18,24,32,34,40,64,72],[1,2,8,16,32,-40,64],
+[64,65,66,68,72,80,96,100,104],[1,2,4,8,16,32,64,66,68,72,80,96,100,104],
+[2,4,8,16,32,64,65,68,72,80,96,100,104],[4,8,32,64,66,72,80,96,104],[8,32,
+64,80,96],[4,8,16,32,64,66,68,72,96,100,104],[1,2,3,4,5,6,8,16,18,20,24,
+32,36,40,96,100,104],[1,2,8,16,24,32,36,40,96,104],[1,2,4,8,16,32,36,40,
+64,96],[32,64,68,72],[1,2,4,8,16,32,36,40,64,72],[1,2,4,8,16,32,40,64],
+[64,65,66,67,70,72,80,82,88,96,104],[1,2,8,16,32,64,66,70,72,80,82,88,96,
+104],[2,4,8,16,32,64,65,68,69,72,80,84,88,96,104],[1,2,3,4,5,6,8,16,18,20,
+24,32,40,64,68,72,80,84,88,96,104],[1,2,6,8,16,18,24,32,40,64,65,72,80,88,
+96,104],[8,64,80,96],[8,16,32,64,66,70,72,96,104],[1,2,4,8,16,18,20,24,32,
+40,64,68,72,96,104],[1,2,8,16,24,32,40,64,96],[8,32,64,72],[1,2,8,16,32,
+40,64],[64,65,66,72,80,96],[1,2,8,16,32,64,72,80,96],[2,4,32,64,72,-80,96],
+[2,8,16,32,64,-80,96],[2,16,32,64,-66,-72,96],[1,2,3,6,8,16,18,24,32,96],
+[32,64],[96,112,120],[32,64,65,68,72,80,84,88],[1,2,4,8,16,32,34,36,40,48,
+64,66,68,72,80,84,88],[1,4,8,16,32,40,48,64,65,72,80,88],[1,4,8,16,32,48,
+64,80],[1,4,8,16,32,48,64,68,72],[1,3,4,5,8,16,20,24,32,33,36,40,48,56,64,
+72],[1,3,4,5,8,16,20,24,32,33,36,40,48,56,64],[64,96,112,120],[1,2,4,8,16,
+32,96,120],[4,8,16,32,96,120],[8,16,32,64,96,112,120],[16,32,64,96,112],
+[32,64,96,100,104],[32,64,66,68,72,80,84,88],[1,2,4,8,16,32,36,40,48,64,
+68,72,80,84,88],[1,2,4,8,16,32,40,48,64,66,72,80,88],[1,2,4,8,16,32,48,64,
+80],[1,2,4,8,16,32,48,64,68,72],[1,2,3,4,5,6,8,16,20,24,32,34,36,40,48,56,
+64,72],[1,2,3,4,5,6,8,16,20,24,32,34,36,40,48,56,64],[64,65,68,72,80,112,
+120],[1,2,4,8,16,64,66,68,72,80,120],[1,3,4,5,8,16,20,24,48,120],[4,8,16,
+64,65,72,80,112,120],[1,2,4,5,6,8,16,20,24,48,64,66,72,80,112,120],[8,16,
+64,80,112],[16,32,64,68,72,96,100,104],[1,4,8,16,24,32,36,40,48,64,72,96,
+104],[1,4,8,16,32,40,48,64,96],[1,4,8,16,48,64,68,72],[1,3,4,5,8,16,20,24,
+48,56,64,72],[1,3,4,5,8,16,20,24,48,56,64],[64,96,112,120],[1,4,8,16,32,
+96,112,120],[16,32,64,96,112],[32,64,96,104],[32,64,65,72,80,88],[1,2,4,8,
+16,32,34,40,48,64,66,72,80,88],[1,4,8,16,32,48,64,80],[1,4,8,16,32,48,64,
+72],[1,3,4,5,8,16,20,24,32,33,40,48,56,64],[64,65,66,72,80,112,120],[1,2,
+8,16,64,66,72,80,112,120],[2,4,8,16,32,64,65,68,72,80,96,112,120],[1,8,16,
+20,24,48,112,120],[8,16,64,80,112],[16,32,64,68,72,96,104],[1,2,4,8,16,24,
+32,34,40,48,64,72,96,104],[1,2,4,8,16,32,40,48,64,96],[1,2,8,16,48,64,72],
+[1,2,3,6,8,16,20,24,48,56,64],[64,96,112],[1,4,8,16,32,96,112],[32,64,96],
+[32,64,80],[1,4,8,16,32,48,64],[64,96,100,104],[1,4,8,16,32,96,100,104],
+[32,64,68,72],[1,4,8,16,32,36,40,64,72],[1,4,8,16,32,40,64],[64,65,68,72,
+80,96,104],[1,2,4,8,16,32,64,66,68,72,80,96,104],[4,8,16,32,64,65,72,80,
+96,104],[8,32,64,80,96],[8,16,32,64,68,72,96,104],[1,3,4,5,8,16,20,24,32,
+40,96,104],[1,4,8,16,32,40,64,96],[32,64,72],[1,4,8,16,32,40,64],[64,65,
+68,72,80,96],[1,2,4,8,16,32,64,66,68,72,80,96],[4,32,64,65,72,80,96],[4,8,
+16,32,64,80,96],[4,16,32,64,68,72,96],[1,3,4,5,8,16,20,24,32,96],[32,64],
+[96,97,104,120],[32,64,65,67,72,88],[1,2,8,32,33,34,40,64,66,70,72,88],[1,
+3,4,5,8,24,32,33,35,36,37,40,56,64,68,72,88],[1,8,16,32,40,48,64,80],[1,3,
+8,24,32,33,40,56,64],[64,96,98,104,120],[1,2,8,32,96,98,104,120],[4,8,32,
+96,100,104,120],[16,32,64,96,112],[32,64,66,70,72,88],[1,2,4,8,32,34,36,
+40,64,68,72,88],[1,2,3,6,8,24,32,34,38,40,56,64,72,88],[1,2,8,16,32,40,48,
+64,80],[1,2,3,6,8,24,32,34,40,56,64],[64,65,68,72,96,100,104,120],[1,2,4,
+8,32,64,66,68,72,96,100,104,120],[1,3,4,5,8,24,32,36,40,96,100,104,120],
+[4,8,32,64,65,72,96,104,120],[1,2,6,8,24,32,36,40,96,104,120],[8,16,32,64,
+80,96,112],[1,4,8,32,36,40,64,96],[32,64,68,72,88],[1,4,8,32,36,40,64,72,
+88],[1,4,8,16,32,40,48,64,80],[1,3,4,5,8,24,32,36,40,56,64],[64,65,67,72,
+88,120],[1,2,8,64,66,70,72,88,120],[1,3,4,5,8,24,64,68,72,88,120],[1,3,7,
+8,24,56,120],[8,16,64,80,112],[1,8,24,32,40,64,96],[1,3,8,24,56,64],[64,
+96,112],[1,8,16,32,96,112],[32,96],[32,64,80],[1,8,16,32,48,64],[64,65,72,
+96],[1,2,8,32,64,66,72,96],[8,16,32,64,80,96],[1,3,8,24,32,96],[32,64],
+[112],[64,80],[1,8,16,32,-48,64],[64,112],[2,16,64,112],[1,8,16,112],[32,
+64,96],[1,8,16,-48,64],[64,96],[1,8,16,32,96],[32,64],[124],[1,-3,4,8,-9,
+-11,-12,-24,-25,-28,-56,-60,64],[64,100],[1,2,4,8,32,64,100],[4,32,64,96],
+[1,4,-36,64],[64,65,68,72,-76,-88,96],[1,2,8,32,64,-66,68,-72,-88,96],[1,
+3,4,8,9,24,32,64,68,72,88,96],[1,4,8,32,64,-72,-88,96],[8,16,32,64,-65,
+-68,-80,-81,-84,96],[1,2,4,8,9,10,16,17,18,24,32,64,66,68,80,82,84,96],[1,
+3,4,8,9,12,16,17,20,24,32,64,80,96],[1,4,8,24,32,64,65,67,68,96],[1,3,4,8,
+9,11,12,24,25,28,32,96],[32,64],[116],[84],[1,-3,4,8,-9,-12,16,-17,-20,32,
+-33,-36,-40,-48,-52,64],[64,116],[2,4,16,64,116],[16,64,112],[1,4,8,16,
+116],[32,64,100],[1,-3,4,8,-9,-12,16,-17,-20,-48,-52,64],[64,100],[1,4,8,
+16,32,100],[32,64,68],[1,4,8,16,32,-36,64],[64,65,68,72,80,96],[1,2,8,32,
+64,68,-80,96],[1,4,8,16,32,64,-72,-80,96],[8,32,64,-68,80,96],[1,8,16,32,
+64,-65,-68,96],[1,3,4,8,9,12,16,17,20,32,96],[32,64],[96,116],[32,64,84],
+[1,2,4,84],[1,4,8,16,40,48,-80,84],[1,2,4,8,16,32,-48,64,-72,80],[1,2,-3,
+4,-10,-12,-20,32,-33,-34,-36,-52,64],[64,96,116],[1,2,4,32,116],[4,8,16,
+32,64,116],[16,32,64,112],[32,64,84],[1,2,-3,4,-10,-12,-20,32,-34,-36,-52,
+64],[64,96,116],[1,2,4,8,16,32,116],[32,64,112],[4,32,96,116],[4,32,64,
+-96,100],[32,64,72,-80,84],[1,2,4,8,16,32,36,-48,64,-65,-68,-80,84],[1,2,
+4,8,16,32,36,64,68],[1,2,-3,4,8,-9,-10,-12,16,-18,-20,32,-33,-36,-40,-48,
+-52,64],[64,96,112],[1,2,4,8,16,32,112],[32,96],[32,64,-72,80],[1,2,4,8,
+16,32,48,64,80],[1,2,4,8,16,32,-48,64],[64,65,68,116],[1,2,4,32,64,-66,68,
+-96,116],[4,16,64,-72,-80,112],[1,4,8,16,18,20,48,64,80,112],[1,2,4,32,36,
+64,96],[1,-3,4,-12,-20,-52,64],[64,65,66,68,72,80,96,112],[1,2,4,8,16,32,
+64,66,68,72,80,96,112],[2,16,32,64,65,68,72,80,96,112],[2,4,16,32,64,72,
+80,96,112],[2,4,8,16,32,64,65,66,68,80,96,112],[16,64,66,68,96],[1,2,4,32,
+48,96],[1,2,4,8,16,18,32,48,64,96],[16,32,64,80],[1,2,4,8,16,32,48,64],
+[64,65,66,68,96],[1,2,4,32,64,-66,68,96],[2,8,32,64,-65,68,-72,-80,96],[2,
+4,8,16,32,64,-72,-80,96],[1,2,3,4,10,12,20,32,96],[32,64],[96,112],[32,64,
+72,80],[1,4,8,16,40,-48,80],[1,4,8,16,32,-48,64,-65,-68,80],[1,4,8,16,32,
+-48,64],[64,96,112],[1,2,4,8,16,32,112],[8,16,32,112],[16,32,64,-96,112],
+[32,64,96],[32,64,-72,80],[1,2,4,8,16,32,48,64,68,80],[1,2,4,8,16,32,-48,
+64],[64,96,112],[2,8,16,32,64,112],[1,4,8,16,32,112],[16,32,64,-96,112],
+[32,64,96],[32,64,-72,80],[1,4,8,16,32,48,64,80],[1,4,8,16,32,-48,64],[64,
+96,112],[1,4,8,16,32,96,112],[32,64,96],[32,64,-65,-68,80],[1,2,4,8,16,32,
+48,64,68,80],[1,4,8,16,32,33,48,64,80],[1,4,8,16,32,-48,64],[64,65,68,72,
+80,112],[1,2,16,64,66,68,72,80,112],[1,4,8,16,48,64,68,72,80,112],[1,4,8,
+16,64,72,80,112],[1,8,16,64,65,68,80,112],[1,2,3,4,8,10,16,48,64,66,68,80,
+112],[1,3,4,8,9,12,16,48,112],[16,32,64,96],[1,4,8,16,48,64],[64,96],[1,4,
+8,16,32,96],[32,64],[124],[1,2,-3,4,8,-10,-12,16,-17,-18,-19,-20,-24,-26,
+-28,-48,-49,-50,-52,-56,-60,64],[64,108],[8,64,76],[1,2,-3,4,8,-10,-12,16,
+-17,-18,-20,-24,32,-33,-34,-36,-40,-44,64],[64,96,100],[1,2,4,8,16,32,64,
+100],[2,4,32,64,80,-96,100],[4,64,96],[2,4,8,16,32,64,100],[2,4,16,32,64,
+-68,100],[4,32,64,-66,68],[1,2,4,8,16,20,32,36,64,68],[1,2,4,8,16,32,-36,
+64],[64,65,66,68,72,-76,80,-81,-82,-84,-88,96],[1,2,4,8,16,32,64,-66,68,
+72,-80,-84,-88,96],[2,16,32,64,-65,68,-72,-80,-84,-88,96],[1,2,3,4,8,10,
+16,17,18,20,24,32,64,68,72,80,88,96],[2,4,8,16,32,64,-72,-80,-88,96],[2,8,
+16,32,64,-66,-68,-80,-82,-84,96],[1,2,4,8,10,16,18,24,32,64,68,80,84,96],
+[1,2,3,4,8,10,12,16,17,18,20,24,32,64,80,96],[16,32,64,-65,-66,-68,-72,
+-74,-76,96],[1,2,4,8,10,16,17,18,20,24,32,64,66,68,72,74,76,96],[1,2,4,8,
+16,18,32,64,65,68,72,76,96],[1,2,4,8,10,16,18,20,24,32,64,72,96],[1,2,4,8,
+16,18,24,32,64,66,68,96],[1,2,3,4,8,10,12,16,17,18,19,20,24,26,28,32,96],
+[32,64],[124],[32,64,92],[1,2,-3,4,8,-10,-12,-24,-26,-28,32,-33,-34,-35,
+-36,-40,-42,-44,-56,-60,64],[64,124],[1,2,4,8,124],[2,4,8,64,124],[4,8,64,
+120],[8,16,64,116],[1,2,-3,4,8,-10,-12,-24,-26,-28,-56,-60,64],[64,124],
+[4,8,124],[8,32,64,120],[16,64,116],[8,32,64,92],[1,2,-3,4,8,-10,-12,-24,
+-26,-28,32,-33,-36,-40,-44,-56,-60,64],[64,120],[2,8,32,120],[16,64,112],
+[8,32,64,88],[1,2,-3,4,8,-10,-12,-24,32,-40,-56,64],[64,116],[100],[16,64,
+84],[1,2,-3,4,8,-10,-12,16,-18,-20,-24,32,-34,-36,-48,-52,64],[64,65,66,
+-67,68,72,-74,-76,-88,96],[1,2,4,8,32,64,-66,68,72,-76,-88,96],[2,32,64,
+-65,68,-72,-88,96],[1,2,3,4,8,10,32,64,68,72,88,96],[2,4,8,32,64,-72,-88,
+96],[2,8,16,32,64,-66,-68,-80,-82,-84,96],[1,2,4,8,10,16,18,32,64,68,80,
+84,96],[1,2,3,4,8,10,12,16,18,20,24,32,64,80,96],[1,2,3,4,8,10,24,32,64,
+66,68,96],[1,2,3,4,8,10,12,24,26,28,32,96],[32,64],[124],[64,92],[1,-3,4,
+8,-10,-12,-24,-28,32,-33,-35,-36,-40,-42,-44,-56,-60,64],[64,120],[16,64,
+112],[8,64,88],[1,-3,4,8,-10,-12,-24,32,-40,-56,64],[64,116],[-96,100],
+[16,64,-80,84],[1,2,4,8,16,32,64,68],[1,2,-3,4,8,-10,-12,16,-17,-20,-24,
+32,-34,-36,-48,-52,64],[64,65,68,72,96,100],[1,2,4,8,16,32,64,72,80,96,
+100],[4,64,96],[4,8,16,32,64,68,80,96,100],[4,32,64,68],[1,4,8,32,36,64],
+[64,65,-67,68,72,-74,-76,-88,96],[1,2,4,8,16,32,64,-66,68,72,-76,-80,-84,
+-88,96],[1,3,4,8,10,12,24,32,64,68,72,88,96],[4,8,32,64,-72,-88,96],[8,16,
+32,64,-66,-68,-80,-84,96],[1,2,4,8,10,12,16,17,20,24,32,64,68,80,84,96],
+[1,2,4,8,12,16,20,24,32,64,80,96],[1,4,8,24,32,64,68,96],[1,3,4,8,10,12,
+24,28,32,96],[32,64],[120],[64,88],[1,2,-3,4,8,-10,-12,16,-24,32,-33,-34,
+-36,-40,-48,-56,64],[64,112],[16,64,80],[1,2,4,8,16,32,-48,64],[64,104],
+[96],[8,64,72],[1,2,4,8,16,32,-40,64],[64,65,66,68,72,80,96],[1,2,4,8,16,
+32,64,72,80,96],[2,32,64,-72,80,96],[2,4,8,16,32,64,-72,80,96],[2,8,32,64,
+-66,-80,96],[2,8,16,32,64,-72,96],[1,2,3,4,8,10,12,16,24,32,96],[32,64],
+[116],[84],[1,2,4,8,16,32,64,-66,68],[1,2,-3,4,8,-10,-12,16,-18,-20,32,
+-33,-34,-36,-40,-48,-52,64],[64,116],[2,4,16,64,116],[4,16,64,116],[16,64,
+112],[1,2,4,8,16,116],[32,64,100],[1,2,-3,4,8,-10,-12,16,-18,-20,-48,-52,
+64],[64,96,100],[1,2,4,8,16,32,100],[32,64,-66,68],[1,2,4,8,16,32,36,64,
+68],[1,2,4,8,16,32,-36,64],[64,65,66,68,72,80,96,100],[1,2,4,8,16,32,64,
+66,68,72,80,96,100],[2,4,8,16,32,64,65,68,72,80,96,100],[4,64,80,96],[4,8,
+16,32,64,66,68,80,96,100],[4,16,32,64,66,68,96,100],[1,2,4,8,16,32,36,64,
+96],[4,32,64,68],[1,2,4,8,16,32,36,64],[64,65,66,68,72,80,96],[1,2,4,8,16,
+32,64,68,80,96],[2,32,64,68,-80,96],[2,4,8,16,32,64,-72,-80,96],[2,8,16,
+32,64,-68,80,96],[2,16,32,64,-66,-68,96],[1,2,3,4,8,10,12,16,18,20,32,96],
+[32,64],[96,116],[32,64,68,72,80,84],[1,2,4,8,16,32,40,48,64,72,80,84],[1,
+2,4,8,16,32,48,64,72,80,84],[1,2,4,8,16,32,64,72,80],[1,2,4,8,16,32,36,48,
+64,66,68,80,84],[1,2,4,8,16,32,36,64,68],[1,2,3,4,8,10,12,16,20,32,33,34,
+36,40,48,52,64],[64,96,116],[1,2,4,8,16,32,96,116],[4,8,16,32,64,96,116],
+[32,64,96,112],[4,16,32,64,96,116],[4,32,64,96,100],[32,64,68,72,80,84],
+[1,2,4,8,16,48,80,84],[1,2,4,8,16,32,64,72,80],[1,2,4,8,16,32,36,48,64,66,
+68,80,84],[1,2,4,8,16,32,36,64,68],[1,2,3,4,8,10,12,16,20,32,34,36,40,48,
+52,64],[64,96,116],[1,2,4,8,16,32,96,116],[32,64,96,112],[4,16,32,64,96,
+116],[4,32,64,96,100],[32,64,68,72,80,84],[1,4,8,16,40,48,80,84],[1,2,4,8,
+16,32,64,72,80],[1,2,4,8,16,32,36,48,64,68,80,84],[1,2,4,8,16,32,36,64,68],
+[1,2,3,4,8,10,12,16,20,32,33,36,40,48,52,64],[64,96,112],[1,2,4,8,16,32,
+96,112],[32,64,72,80],[1,2,4,8,16,32,48,64,80],[1,2,4,8,16,32,48,64],[64,
+96,116],[16,32,64,96,112],[1,2,4,8,16,32,96,116],[32,64,96,100],[32,64,66,
+68,80,84],[1,2,4,8,16,32,36,48,64,68,80,84],[1,2,4,8,16,32,48,64,80],[1,2,
+4,8,16,32,64,68],[1,2,3,4,8,10,12,16,20,32,34,36,48,52,64],[64,65,66,68,
+72,80,96,112],[1,2,4,16,32,64,66,68,72,80,96,112],[2,4,16,32,64,65,68,72,
+80,96,112],[4,16,32,64,72,80,96,112],[1,2,4,8,16,32,64,66,68,80,96,112],
+[16,64,68,96],[1,2,4,8,16,32,48,64,96],[16,32,64,80],[1,2,4,8,16,32,48,64],
+[64,96,100],[32,64,96],[1,2,4,8,16,32,96,100],[32,64,68],[1,2,4,8,16,32,
+36,64],[64,65,66,68,72,80,96],[1,4,8,16,32,64,66,68,72,80,96],[1,2,4,8,16,
+32,64,65,68,72,80,96],[4,8,32,64,72,80,96],[8,32,64,66,68,80,96],[4,8,16,
+32,64,68,96],[1,2,3,4,8,10,12,16,20,32,96],[32,64],[96,112],[32,64,72,80],
+[1,2,4,8,16,32,-48,64,72,80],[1,2,4,8,16,32,-48,64,80],[1,2,4,8,16,32,-40,
+-48,64,-72,80],[1,2,4,8,16,32,-48,64,-66,-68,80],[1,2,4,8,16,32,-48,64],
+[64,96,112],[1,2,4,8,16,32,96,112],[16,32,64,-96,112],[2,8,16,32,64,96,
+112],[2,16,32,64,96,112],[32,64,96],[32,64,72,80],[1,2,4,8,16,40,-48,80],
+[1,2,4,8,16,32,-48,64,-66,-68,80],[1,2,4,8,16,32,-48,64],[64,96,112],[1,2,
+4,8,16,32,96,112],[32,64,96],[32,64,-72,80],[1,4,8,16,-40,-48,80],[1,2,4,
+8,16,32,48,64,68,80],[1,2,4,8,16,32,-48,64],[64,96,112],[16,32,64,96,112],
+[1,2,4,8,16,32,96,112],[2,16,32,64,-96,112],[32,64,96],[32,64,-72,80],[1,
+2,4,8,16,32,48,64,80],[1,2,4,8,16,32,-48,64],[64,96,112],[16,32,64,-96,
+112],[1,2,4,8,16,32,96,112],[32,64,96],[32,64,-66,-68,80],[1,2,4,8,16,32,
+48,64,68,80],[1,2,4,8,16,32,34,48,64,80],[1,2,4,8,16,32,-48,64],[64,65,66,
+68,72,80,112],[1,2,16,64,66,68,72,80,112],[2,16,64,65,68,72,80,112],[1,2,
+4,8,16,48,64,68,72,80,112],[1,2,4,8,16,64,72,80,112],[1,2,8,16,64,66,68,
+80,112],[1,2,3,4,8,16,48,64,68,80,112],[1,2,3,4,8,10,12,16,48,112],[16,32,
+64,96],[1,2,4,8,16,48,64],[64,96],[1,2,4,8,16,32,96],[32,64],[124],[1,4,
+16,48,64,65,68,76],[1,3,4,12,16,17,19,20,28,48,49,52,60,64],[64,96,108],
+[1,4,16,32,96,108],[32,64,65,68,76],[1,2,4,16,32,34,36,64,66,68,76],[1,4,
+8,16,32,40,64,72],[1,3,4,12,16,17,20,32,33,36,44,64],[64,65,66,68,80,96,
+108],[1,2,4,16,32,64,80,96,108],[2,4,16,32,64,80,96,108],[4,8,64,80,96,
+104],[4,16,32,64,65,66,68,96,108],[1,2,4,12,18,20,36,108],[1,4,12,16,20,
+32,34,36,96,108],[1,2,4,8,12,16,24,32,36,40,64,72,96,104],[4,32,64,66,68,
+76],[1,2,4,12,16,20,32,34,36,64,68,76],[1,2,4,8,12,16,32,40,64,72],[1,2,3,
+4,12,16,17,18,20,32,34,36,44,64],[64,68,72,80,96,104],[1,2,4,8,16,32,64,
+80,96,104],[4,8,16,32,64,80,96,104],[8,64,80,96],[8,16,32,64,65,68,72,96,
+104],[1,4,16,32,40,96],[8,32,64,72],[1,4,8,16,32,40,64],[64,65,68,76,80,
+81,84,96],[1,2,4,16,32,64,66,68,80,82,84,96],[1,3,4,12,16,17,20,32,64,68,
+80,84,96],[4,8,16,32,64,72,80,88,96],[1,4,12,16,17,20,32,64,80,96],[16,32,
+64,65,67,68,76,96],[1,2,4,16,17,18,20,32,64,66,68,76,96],[1,4,8,16,20,24,
+32,64,72,96],[1,3,4,12,16,17,19,20,28,32,96],[32,64],[124],[64,80,92],[1,
+2,4,16,32,48,64,66,68,76],[1,2,3,4,12,16,18,20,28,32,33,34,35,36,44,48,50,
+52,60,64],[64,124],[1,2,4,16,124],[2,4,16,64,124],[4,8,16,64,120],[32,64,
+96,108],[1,2,4,16,64,66,68,76],[1,2,3,4,12,16,18,20,28,48,50,52,60,64],
+[64,124],[8,16,64,120],[32,64,96,108],[1,4,16,48,64,68,76],[1,3,4,12,16,
+18,20,28,48,52,60,64],[64,120],[16,32,112],[64,96,104],[16,64,80,88],[1,2,
+4,8,16,32,64,72],[1,2,3,4,8,12,16,18,20,24,32,40,48,56,64],[64,96,108],[1,
+2,4,16,32,96,108],[32,64,66,68,76],[1,2,4,16,32,34,36,64,68,76],[1,2,4,8,
+16,32,40,64,72],[1,2,3,4,12,16,18,20,32,34,36,44,64],[64,65,66,68,80,96,
+108],[1,2,4,16,32,64,66,68,80,96,108],[2,4,16,32,64,65,68,80,96,108],[4,8,
+64,72,80,96,104],[4,16,32,64,66,68,96,108],[1,2,4,12,16,20,32,36,96,108],
+[1,2,4,8,12,16,24,32,36,40,64,72,96,104],[4,32,64,68,76],[1,2,4,8,12,16,
+32,40,64,72],[1,2,3,4,12,16,18,20,32,36,44,64],[64,65,66,68,72,80,96,104],
+[1,2,4,8,16,32,64,68,72,80,96,104],[2,4,8,16,32,64,68,72,80,96,104],[4,8,
+16,32,64,72,80,96,104],[8,64,80,96],[8,16,32,64,66,68,72,96,104],[1,2,4,
+16,32,40,96],[8,32,64,72],[1,2,4,8,16,32,40,64],[64,65,66,67,68,76,80,82,
+84,96],[1,2,4,16,32,64,66,68,76,80,82,84,96],[2,4,16,32,64,65,68,76,80,84,
+96],[1,2,3,4,12,16,18,20,32,64,68,80,84,96],[4,8,16,32,64,72,80,88,96],[1,
+2,4,12,16,18,20,32,64,80,96],[16,32,64,66,68,76,96],[1,2,4,16,18,20,32,64,
+68,76,96],[1,2,4,8,16,20,24,32,64,72,96],[1,2,3,4,12,16,18,20,28,32,96],
+[32,64],[96,124],[32,64,65,68,92],[1,2,4,32,33,34,36,64,66,68,92],[1,4,8,
+32,36,40,64,72,88],[1,3,4,12,28,32,33,35,36,44,60,64],[64,96,124],[1,2,4,
+32,96,124],[4,32,96,124],[8,32,64,96,120],[32,64,66,68,92],[1,2,4,32,34,
+36,64,68,92],[1,2,4,8,32,36,40,64,72,88],[1,2,3,4,12,28,32,34,36,44,60,64],
+[64,65,68,124],[1,2,4,64,66,68,124],[1,3,4,12,124],[4,8,64,72,120],[1,4,
+12,16,20,48,64,80,112],[1,3,4,12,28,60,64],[64,96,120],[1,4,8,32,96,120],
+[16,32,96,112],[32,64,72,88],[1,4,8,16,32,48,64,80],[1,3,4,8,12,24,32,40,
+56,64],[64,65,68,80,96,112],[1,2,4,16,32,64,66,68,80,96,112],[4,8,16,32,
+64,72,80,96,112],[16,64,68,96],[1,4,8,24,32,48,96],[16,32,64,80],[1,4,16,
+32,48,64],[64,65,67,68,76,96],[1,2,4,32,64,66,68,76,96],[1,3,4,12,32,64,
+68,76,96],[4,8,32,64,72,88,96],[1,4,12,16,20,32,64,80,96],[1,3,4,12,28,32,
+96],[32,64],[120],[64,80,88],[1,4,8,16,32,64,72],[1,3,4,8,12,16,24,32,33,
+36,40,48,56,64],[64,120],[2,8,16,64,120],[1,4,8,16,120],[8,16,64,112],[32,
+64,96,104],[1,4,8,16,64,72],[1,3,4,8,12,16,24,48,56,64],[64,112],[32,64,
+96],[1,4,16,48,64],[64,96,104],[1,4,8,16,32,96,104],[32,64,72],[1,4,8,16,
+32,40,64],[64,65,68,72,80,96],[1,2,4,8,16,32,64,72,80,96],[4,8,16,32,64,
+72,80,96],[8,16,32,64,68,80,96],[16,32,64,72,96],[1,3,4,8,12,16,24,32,96],
+[32,64],[96,112],[32,64,65,68,80],[1,2,4,16,32,48,64,80],[1,4,8,16,32,40,
+48,64,72,80],[1,4,16,32,48,64],[64,96,112],[1,2,4,16,32,96,112],[4,16,32,
+96,112],[8,16,32,64,96,112],[32,64,96],[32,64,66,68,80],[1,2,4,16,32,48,
+64,80],[1,2,4,8,16,32,40,48,64,72,80],[1,2,4,16,32,48,64],[64,96,112],[1,
+4,8,16,32,96,112],[16,32,96,112],[32,64,96],[32,64,72,80],[1,4,8,16,32,48,
+64,80],[1,4,8,16,32,48,64],[64,65,68,80,112],[1,2,16,64,66,68,80,112],[1,
+4,16,48,64,68,80,112],[1,4,8,16,64,72,80,112],[1,3,4,12,16,48,112],[16,32,
+64,96],[1,4,16,48,64],[64,96],[1,4,16,32,96],[32,64],[120],[1,-3,4,8,16,
+-17,-20,-24,-48,-56,64],[64,104],[8,64,72],[1,4,8,16,32,-40,64],[64,72,80,
+96],[1,2,16,32,64,-80,96],[1,4,8,16,32,64,-80,96],[1,8,16,32,64,-80,96],
+[16,32,64,-65,-72,96],[1,3,4,8,16,17,20,24,32,96],[32,64],[120],[32,64,88],
+[1,-3,4,8,-24,32,-33,-36,-40,-56,64],[64,120],[8,32,120],[16,64,112],[8,
+32,64,88],[1,2,-3,4,8,-24,32,-34,-36,-40,-56,64],[64,120],[1,2,8,64,120],
+[1,4,8,120],[8,16,64,112],[1,-3,4,8,-24,-56,64],[64,112],[96],[16,64,80],
+[1,4,8,16,32,-48,64],[64,65,68,72,96],[1,2,32,64,96],[1,4,8,32,64,72,96],
+[1,8,16,32,64,-80,96],[1,3,4,8,24,32,96],[32,64],[112],[80],[1,4,8,16,32,
+-48,64],[64,112],[2,16,64,112],[1,16,64,112],[1,4,8,16,112],[32,64,96],[1,
+4,8,16,-48,64],[64,96],[1,4,8,16,32,96],[32,64],[126],[1,2,4,-5,-6,-12,
+-13,-14,-28,-29,-30,-60,-62,64],[64,65,66,68,-69,-70,-76,-78,-92,96],[1,4,
+32,64,66,-68,-70,-76,-92,96],[1,2,4,32,64,-68,-76,-92,96],[4,8,32,64,-65,
+-66,-72,-73,-74,-88,-89,-90,96],[1,2,4,5,8,9,12,24,32,64,66,72,74,88,90,
+96],[1,2,4,5,6,8,9,10,12,24,32,64,72,88,96],[1,2,4,12,16,20,32,64,65,66,
+80,81,82,96],[1,2,4,5,6,12,13,16,17,18,20,21,28,32,64,66,80,82,96],[1,2,4,
+5,6,12,13,14,16,17,18,20,21,22,28,32,64,80,96],[1,2,4,5,6,12,28,32,64,65,
+66,96],[1,2,4,5,6,12,13,14,28,29,30,32,96],[32,64],[96,98,100,112],[32,64,
+65,66,68,-76,80],[1,2,4,16,32,-33,36,-48,64,66,-68,80],[1,2,4,16,32,-33,
+-34,36,-48,64,-68,-76,80],[1,2,4,8,16,32,-36,40,-48,64,-65,-66,-72,-74,80],
+[1,2,4,5,6,8,9,10,12,16,40,41,42,44,48,80],[1,2,4,5,6,12,16,32,33,34,36,
+48,64,65,66,80],[1,2,4,16,32,-48,64],[64,96,-100,112],[1,2,4,16,32,96,112],
+[8,16,32,64,-96,-104,112],[32,64,96],[32,64,66,-68,80],[1,2,4,16,32,-34,
+-36,-48,64,-68,-76,80],[1,2,4,8,16,32,36,40,48,64,66,72,74,80],[1,2,4,5,6,
+12,16,34,48,80],[1,2,4,16,32,-48,64],[64,96,-100,112],[4,16,32,64,96,112],
+[1,2,4,16,32,96,112],[8,16,32,64,-96,-104,112],[32,64,96],[32,64,-68,-76,
+80],[1,2,4,8,16,32,36,40,48,64,72,80],[1,2,4,5,6,12,16,32,36,48,64,80],[1,
+2,4,16,32,-48,64],[64,96,-97,-98,-104,112],[1,2,4,8,16,32,96,-104,112],
+[16,32,-96,-97,-98,112],[32,64,96],[32,64,-65,-66,-72,-74,80],[1,2,4,8,16,
+32,33,40,48,64,66,72,74,80],[1,2,4,8,16,32,33,34,40,48,64,72,80],[1,2,4,8,
+16,32,40,48,64,65,66,80],[1,2,5,6,8,9,10,16,34,48,80],[1,2,4,5,6,8,9,10,
+12,16,32,33,34,40,41,48,64,80],[1,2,4,8,16,32,-48,64],[64,65,66,68,72,80,
+96,98,104,112],[1,2,4,8,16,32,64,66,68,72,80,96,104,112],[2,8,16,32,64,68,
+72,80,96,104,112],[2,4,8,16,32,64,65,66,72,80,96,104,112],[1,2,4,5,6,8,9,
+10,12,16,32,34,40,48,96,112],[8,16,32,64,65,66,68,80,96,98,112],[1,2,4,12,
+16,32,34,40,48,96,98,112],[1,2,4,8,16,32,34,40,48,64,65,66,80,96,98,112],
+[16,32,64,96],[32,64,66,72,74,80],[1,2,4,8,16,32,34,40,48,64,72,80],[1,2,
+4,8,16,32,40,48,64,66,80],[1,2,4,5,6,8,9,10,12,16,32,34,40,48,64,80],[1,2,
+4,8,16,32,48,64],[64,65,66,68,72,80,96,104,112],[1,8,16,32,64,66,68,72,80,
+96,104,112],[1,2,4,8,16,32,64,68,72,80,96,104,112],[1,4,8,16,32,64,65,66,
+72,80,96,104,112],[1,2,4,8,9,12,16,32,40,48,64,66,72,80,96,104,112],[1,2,
+4,5,6,8,9,10,12,16,32,40,48,96,104,112],[8,16,32,64,65,66,68,80,96,112],
+[1,2,4,8,16,32,40,48,64,66,68,80,96,112],[1,2,4,5,12,16,32,40,48,96,112],
+[1,2,4,8,9,16,32,40,48,64,65,66,80,96,112],[16,32,64,96],[32,64,72,80],[1,
+2,4,8,16,32,40,48,64,80],[1,2,4,8,16,32,48,64],[64,65,66,68,80,96,97,98,
+112],[1,16,32,64,66,68,80,96,98,112],[1,2,16,32,64,68,80,96,112],[1,2,4,8,
+16,32,64,65,66,72,80,96,97,98,112],[1,2,4,5,6,12,16,32,33,34,48,96,98,112],
+[16,32,64,96],[32,64,65,66,80],[1,2,4,16,32,33,48,64,66,80],[1,2,4,16,32,
+33,34,48,64,80],[1,2,4,16,32,48,64],[64,65,66,68,69,70,76,80,112],[1,16,
+64,66,68,70,76,80,112],[1,2,4,16,64,68,76,80,112],[1,4,8,16,64,65,66,72,
+73,74,80,112],[1,2,4,5,8,9,16,48,64,66,72,74,80,112],[1,2,4,5,6,8,9,10,12,
+16,48,64,72,80,112],[1,2,4,5,12,16,48,64,65,66,80,112],[1,2,4,5,6,12,16,
+48,64,66,80,112],[1,2,4,5,6,12,13,14,16,48,112],[16,32,64,96],[1,2,4,16,
+48,64],[64,96],[1,2,4,16,32,96],[32,64],[122],[1,2,-5,-6,-10,16,-17,-18,
+-21,-22,-26,-48,-49,-50,-58,64],[64,106],[1,2,-5,-6,-10,-42,64],[64,65,66,
+-74,80,-81,-82,96],[1,4,16,32,64,66,-68,-72,-80,-82,-88,96],[1,2,4,8,16,
+32,64,-68,-72,-80,-84,-88,96],[1,2,5,16,17,32,64,66,80,96],[1,2,4,5,6,8,9,
+16,17,18,20,24,32,64,72,80,88,96],[1,2,5,6,10,16,17,18,32,64,80,96],[16,
+32,64,-65,-66,-70,-74,96],[1,2,4,8,16,17,20,32,64,66,68,72,74,96],[1,2,4,
+5,8,16,17,18,20,24,32,64,68,72,96],[1,2,5,6,10,16,17,18,21,22,26,32,96],
+[32,64],[96,112],[32,64,66,80],[1,2,4,8,16,32,-48,64,80],[1,2,4,8,16,32,
+40,-48,64,-72,80],[1,2,16,32,-48,64],[64,96,112],[1,2,4,8,16,32,96,112],
+[16,32,-96,112],[32,64,96],[32,64,66,80],[1,2,4,8,16,32,-48,64,-72,80],[1,
+2,4,8,16,34,48,80],[1,2,4,8,16,32,-48,64],[64,96,112],[4,16,32,64,96,112],
+[1,2,4,8,16,32,96,112],[16,32,64,-96,112],[1,16,32,-96,112],[32,64,96],
+[32,64,-68,-72,80],[1,2,4,8,16,32,48,64,72,80],[1,2,4,8,16,32,36,48,64,80],
+[1,2,4,8,16,32,-48,64],[64,65,66,80,112],[1,4,16,64,66,68,72,80,112],[1,2,
+4,8,16,64,68,72,80,112],[1,2,16,48,64,66,80,112],[1,2,4,5,8,9,16,48,64,72,
+80,112],[1,2,5,6,10,16,48,112],[16,32,64,96],[1,2,16,48,64],[64,96],[1,2,
+16,32,96],[32,64],[120],[1,2,4,8,16,64,72],[1,2,4,-5,-6,8,16,-17,-18,-20,
+-24,-48,-56,64],[64,96,104],[1,2,4,8,16,32,104],[32,64,68,72],[1,2,4,8,
+-40,72],[1,2,4,8,16,32,-40,64],[64,65,66,68,72,104],[1,4,8,64,104],[1,2,4,
+8,64,104],[4,8,16,32,64,80,-96,104],[8,32,64,-80,96],[1,2,4,-5,8,-24,-40,
+64,-65,-66,-72,104],[1,2,4,8,16,32,36,40,64,96],[1,2,4,8,-40,64],[64,65,
+68,72,80,96,104],[1,8,16,32,64,80,-96,104],[1,2,8,16,32,64,80,-96,104],[1,
+2,4,8,16,32,64,-80,96,104],[8,64,-80,96],[8,16,32,64,65,66,-68,-72,96,104],
+[1,2,4,8,16,32,33,40,64,96],[8,32,64,-66,72],[1,2,4,8,16,24,32,40,64,72],
+[1,2,4,8,16,32,-40,64],[64,72,80,96],[1,16,32,64,-80,96],[1,2,4,16,32,64,
+-80,96],[1,4,16,32,64,-80,96],[1,2,4,8,16,32,64,-80,96],[16,32,64,-65,-66,
+-68,-72,96],[1,2,4,5,6,8,16,17,18,20,24,32,96],[32,64],[120],[64,88],[1,2,
+4,8,72],[1,2,4,-5,-6,8,16,-18,-20,-24,32,-33,-34,-36,-40,-48,-56,64],[64,
+120],[1,2,4,8,16,120],[4,8,16,64,120],[4,8,16,64,120],[8,16,64,112],[32,
+64,104],[1,2,4,-5,-6,8,16,-18,-20,-24,-48,-56,64],[64,120],[16,32,64,112],
+[64,-96,104],[16,64,-80,88],[1,2,4,8,16,32,64,66,72],[1,2,4,-5,-6,8,16,
+-18,-20,-24,32,-33,-34,-40,-48,-56,64],[64,112],[64,96],[16,64,80],[1,2,4,
+8,16,32,-48,64],[64,104],[1,2,4,8,16,32,104],[32,64,72],[1,2,4,8,16,32,
+-40,64],[64,65,66,68,72,104],[1,2,4,8,64,68,72,104],[2,8,16,32,64,68,72,
+80,96,104],[2,4,8,64,65,66,72,104],[8,32,64,80,96],[1,2,4,8,16,32,34,40,
+64,96],[1,2,4,8,40,64],[64,65,66,68,72,80,96],[1,2,4,8,16,32,64,72,80,96],
+[2,4,16,32,64,72,-80,96],[4,32,64,72,-80,96],[2,4,8,16,32,64,-80,96],[4,
+16,32,64,-66,-68,-72,96],[1,2,4,5,6,8,16,18,20,24,32,96],[32,64],[120],
+[64,88],[1,2,4,8,16,32,64,-68,72],[1,2,4,-5,-6,8,16,-20,-24,32,-33,-34,
+-36,-40,-48,-56,64],[64,120],[8,16,32,64,120],[16,32,64,112],[64,104],[16,
+64,88],[1,2,4,-5,-6,8,16,-20,-24,32,-34,-36,-40,-48,-56,64],[64,120],[1,4,
+8,16,64,120],[1,2,4,8,16,120],[4,8,16,64,120],[8,16,64,112],[32,64,104],
+[1,2,4,-5,-6,8,16,-20,-24,-48,-56,64],[64,120],[16,32,64,112],[64,-96,104],
+[16,64,-80,88],[1,2,4,8,16,32,64,72],[1,2,4,-5,-6,8,16,-20,-24,32,-33,-34,
+-40,-48,-56,64],[64,112],[64,96],[16,64,80],[1,2,4,8,16,32,-48,64],[64,96,
+104],[1,2,4,8,16,32,104],[32,64,-68,72],[1,2,4,8,16,32,40,64,72],[1,2,4,8,
+16,32,-40,64],[64,65,66,68,72,80,96,104],[1,8,32,64,72,80,96,104],[1,2,4,
+8,16,32,64,68,72,80,96,104],[1,4,8,16,32,64,65,72,80,96,104],[8,64,80,96],
+[1,8,16,32,64,68,72,96,104],[1,2,4,8,16,32,40,64,96],[8,32,64,72],[1,2,4,
+8,16,32,40,64],[64,65,66,68,72,80,96],[1,4,32,64,80,96],[1,2,4,8,16,32,64,
+72,80,96],[4,32,64,-80,96],[1,4,8,16,32,64,-80,96],[1,4,16,32,64,-68,-72,
+96],[1,2,4,5,6,8,16,20,24,32,96],[32,64],[120],[64,80,88],[1,2,4,8,16,32,
+64,-66,72],[1,2,4,-5,-6,8,16,-17,-18,-24,32,-33,-34,-36,-40,-48,-56,64],
+[64,120],[8,16,64,120],[1,8,16,64,120],[1,2,4,8,16,120],[8,16,64,112],[32,
+64,96,104],[1,2,4,8,16,64,-66,72],[1,2,4,-5,-6,8,16,-17,-18,-24,-48,-56,
+64],[64,112],[64,96],[16,64,80],[1,2,4,8,16,32,-48,64],[64,96,104],[1,2,4,
+8,16,32,96,104],[32,64,-66,72],[1,2,4,8,16,32,40,64,72],[1,2,4,8,16,32,
+-40,64],[64,65,66,72,104],[1,2,4,8,16,32,64,72,96,104],[2,8,16,32,64,72,
+80,96,104],[8,32,64,80,96],[1,2,4,8,16,32,34,40,64,96],[1,2,8,40,64],[64,
+65,66,68,72,80,96,104],[1,8,32,64,72,80,96,104],[1,2,4,8,16,32,64,68,72,
+80,96,104],[1,4,8,16,32,64,65,66,72,80,96,104],[8,64,80,96],[1,8,16,32,64,
+65,66,72,96,104],[1,2,8,24,32,40,72,104],[1,2,4,8,16,32,40,64,96],[8,32,
+64,72],[1,2,4,8,16,32,40,64],[64,65,66,68,72,80,96],[1,32,64,-80,96],[1,2,
+16,32,64,72,-80,96],[1,2,4,8,16,32,64,72,80,96],[1,2,8,16,32,64,-80,96],
+[1,16,32,64,-65,-66,-72,96],[1,2,4,5,6,8,16,17,18,24,32,96],[32,64],[96,
+120],[32,64,65,66,68,72,88],[1,2,4,8,32,40,64,66,68,72,88],[1,2,4,8,32,33,
+34,36,40,64,68,72,88],[1,2,4,8,32,33,36,40,64,65,66,72,88],[1,2,4,8,16,32,
+48,64,80],[1,2,4,5,6,8,24,32,33,34,36,40,56,64],[64,96,120],[1,2,4,8,32,
+96,120],[16,32,64,96,112],[32,64,66,68,72,88],[1,2,4,8,32,36,40,64,68,72,
+88],[1,2,4,8,32,36,40,64,66,72,88],[1,2,4,8,16,32,48,64,80],[1,2,4,5,6,8,
+24,32,34,36,40,56,64],[64,96,120],[8,32,64,96,120],[1,2,4,8,32,96,120],[1,
+8,32,64,96,120],[16,32,64,96,112],[32,64,68,72,88],[1,2,4,8,32,36,40,64,
+72,88],[1,2,4,8,16,32,48,64,80],[1,2,4,5,6,8,24,32,36,40,56,64],[64,96,
+120],[8,32,64,96,120],[1,2,4,8,32,96,120],[16,32,64,96,112],[32,64,65,66,
+72,88],[1,2,4,8,32,33,40,64,66,72,88],[1,2,4,8,32,33,34,40,64,72,88],[1,2,
+4,8,16,32,48,64,80],[1,2,4,5,6,8,24,32,33,34,40,56,64],[64,65,66,68,72,96,
+120],[1,8,32,64,66,68,72,96,120],[1,2,8,32,64,68,72,96,120],[1,2,4,8,32,
+64,65,66,72,96,120],[8,16,64,80,96,112],[1,2,4,8,32,64,96],[8,32,64,66,72,
+88],[1,2,4,8,24,32,34,40,64,72,88],[1,2,4,8,16,24,32,48,64,80],[1,2,4,5,6,
+8,24,32,34,40,56,64],[64,65,66,68,72,120],[1,8,64,66,68,72,120],[1,2,4,8,
+64,68,72,120],[1,4,8,64,65,66,72,120],[1,2,4,5,8,24,64,66,72,120],[1,2,4,
+5,6,8,24,120],[8,16,64,80,112],[1,2,4,8,32,40,64,96],[1,2,4,5,6,8,24,56,
+64],[64,96,112],[1,2,4,8,16,32,96,112],[32,96],[32,64,80],[1,2,4,8,16,32,
+48,64],[64,65,66,68,72,96],[1,32,64,66,68,72,96],[1,2,4,8,32,64,68,72,96],
+[1,4,8,32,64,65,66,72,96],[1,8,16,32,64,80,96],[1,2,4,5,6,8,24,32,96],[32,
+64],[112],[64,80],[1,2,4,8,16,32,-48,64],[64,112],[16,64,112],[1,4,16,64,
+112],[1,16,64,112],[1,2,4,8,16,112],[32,64,96],[1,2,4,8,16,-48,64],[64,96],
+[1,2,4,8,16,32,96],[32,64],[126],[1,2,-6,8,-9,-10,-14,-24,-25,-26,-30,-56,
+-57,-58,-62,64],[64,65,66,-70,72,-73,-74,-78,-88,-89,-90,96],[1,2,8,32,64,
+66,-70,-72,-74,-88,-90,96],[2,4,8,32,64,-68,-72,-76,-88,-92,96],[1,2,6,8,
+9,10,24,32,64,72,88,96],[8,16,32,64,-65,-66,-70,-80,-81,-82,-86,96],[1,2,
+8,9,10,16,17,18,24,32,64,66,70,80,82,86,96],[1,2,4,8,10,12,16,18,20,24,32,
+64,68,80,84,96],[1,2,6,8,9,10,14,16,17,18,22,24,25,26,32,64,80,96],[1,2,8,
+24,32,64,65,66,70,96],[1,2,6,8,9,10,24,25,26,32,64,66,70,96],[1,2,4,6,8,9,
+10,12,24,26,28,32,64,68,96],[1,2,6,8,9,10,14,24,25,26,30,32,96],[32,64],
+[118],[86],[1,2,-6,8,-9,-10,-14,16,-17,-18,-22,32,-33,-34,-38,-40,-41,-42,
+-48,-49,-50,-54,64],[64,118],[4,16,64,116],[1,2,-6,-9,-10,-14,-18,-22,-54,
+64],[64,102],[4,64,100],[2,64,70],[1,2,-6,8,-9,-10,16,-17,-18,32,-33,-34,
+-38,64],[64,65,66,-70,72,-73,-74,80,-81,-82,96],[1,2,8,16,32,64,66,-70,
+-72,-80,-82,96],[2,4,8,32,64,-68,-72,-76,-80,-84,96],[1,2,6,8,9,10,16,32,
+64,72,80,96],[8,32,64,-65,-66,-70,80,-82,96],[1,2,8,9,10,16,32,64,66,80,
+96],[1,2,4,8,10,12,16,32,64,68,80,84,96],[2,8,16,32,64,-65,-66,-70,96],[1,
+2,6,8,9,10,16,17,18,32,64,66,70,96],[1,2,4,6,8,9,10,12,16,18,20,32,64,68,
+96],[1,2,6,8,9,10,14,16,17,18,22,32,96],[32,64],[96,97,98,104,112],[32,64,
+65,66,72,80],[1,2,8,16,32,-33,-34,40,-48,64,66,-72,80],[1,2,4,8,16,32,-34,
+-36,40,-48,64,-68,-72,-76,80],[1,2,6,8,9,10,16,40,41,42,48,80],[1,2,8,16,
+32,-40,-48,64,-65,-66,-70,80],[1,2,6,8,9,10,16,32,33,34,40,48,64,66,70,80],
+[1,2,4,6,8,9,10,12,16,32,33,34,36,40,44,48,64,68,80],[1,2,8,16,32,-48,64],
+[64,96,98,-104,112],[1,2,8,16,32,96,-104,112],[4,8,16,32,64,96,-104,112],
+[16,32,64,-96,-98,112],[32,64,96],[32,64,66,-72,80],[1,2,4,8,16,32,-34,36,
+-40,-48,64,-68,-72,-76,80],[1,2,8,16,32,40,48,64,66,70,80],[1,2,4,6,8,9,
+10,12,16,36,44,48,80],[1,2,8,16,32,-48,64],[64,96,-100,-104,112],[1,2,4,8,
+16,32,96,-104,112],[8,16,32,-96,-104,112],[16,32,64,-96,-100,112],[32,64,
+96],[32,64,-68,-72,-76,80],[1,2,4,8,16,32,36,40,48,64,72,80],[1,2,4,8,16,
+32,40,48,64,68,80],[1,2,4,6,8,9,10,12,16,32,36,40,48,64,80],[1,2,4,8,16,
+32,-48,64],[64,65,66,72,80,96,104,112],[1,8,16,32,64,66,72,80,96,104,112],
+[1,2,4,8,16,32,64,68,72,80,96,104,112],[1,2,6,8,9,10,16,32,40,48,96,104,
+112],[8,16,32,64,65,66,80,96,112],[1,2,8,16,32,40,48,64,66,80,96,112],[1,
+2,4,8,12,16,32,40,48,64,68,80,96,112],[16,32,64,96],[32,64,72,80],[1,2,8,
+16,32,40,48,64,80],[1,2,8,16,32,48,64],[64,96,-97,-98,112],[1,2,8,16,32,
+96,-97,-98,112],[32,64,96],[32,64,-65,-66,-70,80],[1,2,8,16,32,33,34,48,
+64,66,70,80],[1,2,4,8,16,32,34,36,48,64,68,80],[1,2,6,8,9,10,16,32,33,34,
+48,64,80],[1,2,8,16,32,-48,64],[64,65,66,72,80,96,98,112],[1,2,8,16,32,64,
+66,72,80,96,98,112],[2,4,16,32,64,68,72,80,96,100,112],[2,8,16,32,64,65,
+66,80,96,98,112],[1,2,6,8,9,10,16,32,34,48,96,112],[1,2,4,6,8,12,16,32,34,
+36,48,64,68,80,96,100,112],[16,32,64,96],[32,64,66,70,80],[1,2,4,8,16,32,
+34,36,48,64,68,80],[1,2,6,8,9,10,16,32,34,48,64,80],[1,2,8,16,32,48,64],
+[64,65,66,68,72,80,96,100,112],[1,4,8,16,32,64,66,68,72,80,96,100,112],[1,
+2,4,8,16,32,64,68,72,80,96,100,112],[4,16,32,64,66,72,80,96,112],[4,8,16,
+32,64,65,66,68,80,96,100,112],[1,2,4,6,8,9,10,12,16,32,36,48,96,100,112],
+[1,2,8,16,32,36,48,96,112],[16,32,64,96],[32,64,68,80],[1,2,4,8,16,32,36,
+48,64,80],[1,2,4,8,16,32,48,64],[64,65,66,70,72,73,74,80,112],[1,8,16,64,
+66,70,72,74,80,112],[1,2,4,8,16,64,68,72,76,80,112],[1,2,6,8,9,10,16,48,
+64,72,80,112],[8,16,64,65,66,70,80,112],[1,2,8,9,16,48,64,66,70,80,112],
+[1,2,4,8,9,10,12,16,48,64,68,80,112],[1,2,6,8,9,10,14,16,48,112],[16,32,
+64,96],[1,2,8,16,48,64],[64,96],[1,2,8,16,32,96],[32,64],[126],[1,2,-6,
+-14,16,-17,-18,-22,-30,-48,-49,-50,-54,-62,64],[64,110],[2,16,32,110],[2,
+32,64,78],[1,2,-6,-14,16,-17,-18,-22,32,-33,-34,-38,-46,64],[64,65,66,-70,
+-78,80,-81,-82,-86,96],[1,2,16,32,64,66,-70,-80,-82,-86,96],[2,4,16,32,64,
+-68,-76,-80,-84,-92,96],[1,2,6,8,10,16,17,18,24,32,64,72,80,88,96],[1,2,6,
+14,16,17,18,22,32,64,80,96],[16,32,64,-65,-66,-70,-78,96],[1,2,16,17,18,
+32,64,66,70,78,96],[1,2,4,16,18,20,32,64,68,76,96],[1,2,6,8,10,16,17,18,
+22,24,26,32,64,72,96],[1,2,6,14,16,17,18,22,30,32,96],[32,64],[126],[32,
+64,94],[1,2,-6,-14,-30,32,-33,-34,-38,-46,-62,64],[64,126],[1,2,126],[2,4,
+64,124],[1,2,-6,-14,-30,-62,64],[64,124],[2,4,32,124],[8,120],[4,32,64,92],
+[1,2,4,-6,-12,-14,-28,32,-36,-44,-60,64],[64,65,66,-70,-78,96],[1,2,32,64,
+66,-70,-78,96],[2,4,32,64,-68,-76,-92,96],[1,2,6,8,10,24,32,64,72,88,96],
+[1,2,6,14,16,18,22,32,64,80,96],[1,2,6,14,30,32,96],[32,64],[124],[92],[1,
+2,4,-6,-12,-14,16,-20,-28,32,-33,-34,-36,-38,-44,-48,-52,-60,64],[64,124],
+[8,64,120],[4,32,64,108],[1,2,4,-6,-12,-14,16,-20,-28,-48,-52,-60,64],[64,
+120],[112],[1,2,-6,8,-10,16,-20,-24,-48,-56,64],[64,108],[8,64,104],[2,4,
+32,108],[4,32,64,76],[1,2,4,-6,-12,16,-20,32,-36,-44,64],[64,65,66,68,-70,
+-76,80,-84,96],[1,2,4,16,32,64,66,68,-76,80,-84,96],[2,4,16,32,64,-68,-76,
+80,96],[4,8,32,64,-66,-72,-74,-80,-88,96],[1,2,4,6,8,10,12,16,20,24,32,64,
+72,80,88,96],[1,2,4,12,16,32,64,66,80,96],[4,16,32,64,-68,-76,96],[1,2,4,
+8,12,16,20,24,32,64,72,96],[1,2,4,6,12,14,16,20,28,32,96],[32,64],[96,97,
+98,112],[32,64,65,66,80],[1,2,16,32,-33,-34,-48,64,66,80],[1,2,4,16,32,
+-34,-36,-48,64,-68,-76,80],[1,2,6,8,10,16,32,33,34,40,42,48,64,72,80],[1,
+2,16,32,-48,64],[64,96,98,112],[1,2,16,32,96,98,112],[4,16,32,64,96,-100,
+112],[32,64,96],[32,64,66,80],[1,2,4,16,32,-34,36,-48,64,-68,-76,80],[1,2,
+6,8,10,16,40,42,48,80],[1,2,16,32,-48,64],[64,96,-100,112],[1,2,4,16,32,
+96,-100,112],[8,16,32,-96,-104,112],[32,64,96],[32,64,-68,-76,80],[1,2,4,
+8,16,32,36,40,48,64,72,80],[1,2,4,6,12,16,32,36,48,64,80],[1,2,4,16,32,
+-48,64],[64,65,66,72,80,96,104,112],[1,2,8,16,32,64,66,72,80,96,104,112],
+[2,4,8,16,32,64,68,72,80,96,104,112],[1,2,6,8,10,16,32,40,48,96,104,112],
+[8,16,32,64,66,80,96,112],[1,2,4,12,16,32,40,48,96,112],[16,32,64,96],[32,
+64,72,80],[1,2,8,16,32,40,48,64,80],[1,2,8,16,32,48,64],[64,65,66,70,80,
+112],[1,2,16,64,66,70,80,112],[2,4,16,64,68,76,80,112],[1,2,6,8,10,16,48,
+64,72,80,112],[1,2,6,14,16,48,112],[16,32,64,96],[1,2,16,48,64],[64,96],
+[1,2,16,32,96],[32,64],[124],[1,2,4,-6,8,-12,16,-17,-18,-20,-22,-24,-28,
+-48,-49,-50,-52,-56,-60,64],[64,108],[1,2,4,-6,8,-12,16,-17,-18,-20,-24,
+32,-33,-34,-36,-40,-44,64],[64,65,66,68,72,-76,80,-81,-82,-84,-88,96],[1,
+2,4,8,16,32,64,66,68,72,-80,-84,-88,96],[2,4,8,16,32,64,-68,72,-80,-84,
+-88,96],[4,16,32,64,-66,-72,-80,-82,-88,96],[1,2,4,6,8,12,16,17,18,20,24,
+32,64,72,80,88,96],[4,8,16,32,64,-68,-80,-84,96],[1,2,4,8,12,16,17,18,20,
+24,32,64,80,96],[16,32,64,-65,-66,-68,-72,-76,96],[1,2,4,8,16,17,18,20,24,
+32,64,66,68,72,76,96],[1,2,4,8,16,18,20,24,32,64,68,72,76,96],[1,2,4,8,16,
+20,32,64,66,72,96],[1,2,4,8,16,20,24,32,64,68,96],[1,2,4,6,8,12,16,17,18,
+20,22,24,28,32,96],[32,64],[120],[88],[1,2,-6,8,-12,-24,32,-33,-34,-40,
+-56,64],[64,65,66,72,96],[1,2,8,32,64,72,96],[2,4,8,16,32,64,72,-80,96],
+[8,16,32,64,-68,-80,96],[1,2,6,8,12,24,32,96],[32,64],[116],[84],[1,2,4,
+-6,8,-12,16,-20,32,-33,-34,-36,-40,-48,-52,64],[64,112],[16,80],[1,2,4,8,
+16,32,-48,64],[64,100],[96],[4,64,68],[1,2,4,8,16,32,-36,64],[64,65,66,68,
+72,80,96],[1,2,4,8,16,32,64,68,80,96],[2,4,8,16,32,64,-68,80,96],[4,32,64,
+-66,-80,96],[4,8,16,32,64,-68,80,96],[4,16,32,64,-68,96],[1,2,4,6,8,12,16,
+20,32,96],[32,64],[96,112],[32,64,80],[1,2,4,8,16,32,-48,64,80],[1,2,4,8,
+16,32,-48,64,80],[1,2,4,8,16,32,-48,64,-72,80],[1,2,4,8,16,32,-36,-48,64,
+-68,80],[1,2,4,8,16,32,-48,64],[64,96,112],[1,2,4,8,16,32,96,112],[4,8,16,
+32,64,96,112],[16,32,64,96,112],[4,16,32,64,96,112],[32,64,96],[32,64,68,
+80],[1,2,4,8,16,32,-48,64,-72,80],[1,2,4,8,16,36,-48,80],[1,2,4,8,16,32,
+-48,64],[64,96,112],[1,2,4,8,16,32,96,112],[8,16,32,64,-96,112],[16,32,64,
+96,112],[32,64,96],[32,64,80],[1,2,4,8,16,40,48,80],[1,2,4,8,16,32,-48,64,
+-68,80],[1,2,4,8,16,32,-48,64],[64,96,112],[1,2,4,8,16,32,96,112],[32,64,
+96],[32,64,-72,80],[1,2,8,16,48,80],[1,2,4,8,16,32,34,48,64,80],[1,2,4,8,
+16,32,-48,64],[64,96,112],[16,32,64,-96,112],[1,2,4,8,16,32,96,112],[32,
+64,96],[32,64,-68,80],[1,2,4,8,16,32,48,64,80],[1,2,4,8,16,32,-48,64],[64,
+65,66,68,72,80,112],[1,2,16,64,66,68,72,80,112],[2,16,64,68,72,80,112],[1,
+2,4,16,64,66,72,80,112],[1,2,4,8,16,48,64,72,80,112],[1,2,4,8,16,64,68,80,
+112],[1,2,4,6,8,12,16,48,112],[16,32,64,96],[1,2,4,8,16,48,64],[64,96],[1,
+2,4,8,16,32,96],[32,64],[120],[1,2,8,16,64,72],[1,2,-6,8,16,-17,-18,-24,
+-48,-56,64],[64,96,104],[1,2,8,16,32,96,104],[32,64,72],[1,2,8,16,32,-40,
+64],[64,65,72,80,96,104],[1,2,8,16,32,64,104],[2,4,8,16,32,64,96,104],[8,
+64,-80,96],[8,16,32,64,-72,104],[1,2,8,16,32,40,64,96],[8,32,64,72],[1,2,
+8,16,32,-40,64],[64,65,66,68,72,80,96,104],[1,4,8,16,32,64,-80,96,104],[1,
+2,4,8,16,32,64,-80,96,104],[4,8,16,32,64,-80,-96,104],[8,64,-80,96],[8,16,
+32,64,-65,-66,-68,-72,96,104],[1,2,8,16,17,24,32,36,40,96,104],[1,2,4,8,
+16,32,40,64,96],[8,32,64,-68,72],[1,2,4,8,16,24,32,40,64,72],[1,2,4,8,16,
+32,-40,64],[64,72,80,96],[1,2,8,16,32,64,-80,96],[2,4,16,32,64,-80,96],[2,
+8,16,32,64,-80,96],[16,32,64,-65,-66,-72,96],[1,2,6,8,16,17,18,24,32,96],
+[32,64],[120],[64,88],[1,2,8,16,32,64,72],[1,2,-6,8,16,-18,-24,32,-33,-34,
+-40,-48,-56,64],[64,120],[1,2,8,16,120],[2,4,8,16,64,120],[8,16,64,112],
+[32,64,104],[1,2,8,72],[1,2,-6,8,16,-18,-24,-48,-56,64],[64,120],[8,16,32,
+120],[16,32,64,112],[64,96,104],[16,64,80,88],[1,2,4,8,16,32,64,-68,72],
+[1,2,4,-6,8,16,-18,-20,-24,32,-36,-40,-48,-56,64],[64,112],[64,96],[16,64,
+80],[1,2,8,16,32,-48,64],[64,96,104],[1,2,8,16,32,104],[32,64,72],[1,2,8,
+16,32,-40,64],[64,65,66,68,72,104],[1,2,4,8,64,66,68,72,104],[2,4,8,64,
+-68,72,104],[4,8,16,32,64,-66,72,80,-96,104],[8,32,64,-80,96],[1,2,8,-24,
+-40,104],[1,2,4,8,16,32,36,40,64,96],[1,2,4,8,-40,64],[64,65,66,72,80,96],
+[1,2,8,16,32,64,72,80,96],[2,4,16,32,64,-80,96],[2,8,16,32,64,-80,96],[16,
+32,64,-66,-72,96],[1,2,6,8,16,18,24,32,96],[32,64],[120],[64,80,88],[1,2,
+4,8,16,32,64,-68,72],[1,2,4,-6,8,16,-20,-24,32,-33,-34,-36,-40,-48,-56,64],
+[64,120],[4,8,16,64,120],[1,2,4,8,16,120],[4,8,16,64,120],[8,16,64,112],
+[32,64,96,104],[1,2,4,8,16,64,-68,72],[1,2,4,-6,8,16,-20,-24,-48,-56,64],
+[64,120],[16,64,112],[32,64,-96,104],[1,2,8,16,64,72],[1,2,-6,8,16,-20,
+-24,-48,-56,64],[64,112],[64,96],[16,64,80],[1,2,4,8,16,32,-48,64],[64,96,
+104],[1,2,4,8,16,32,96,104],[32,64,-68,72],[1,2,4,8,16,32,40,64,72],[1,2,
+4,8,16,32,-40,64],[64,65,66,68,72,80,96,104],[1,8,16,32,64,72,80,96,104],
+[1,2,4,8,16,32,64,68,72,80,96,104],[1,4,8,16,32,64,66,72,80,96,104],[8,64,
+80,96],[8,16,32,64,68,72,96,104],[1,2,4,8,16,32,40,64,96],[8,32,64,72],[1,
+2,4,8,16,32,40,64],[64,65,66,68,72,80,96],[1,4,8,16,32,64,72,80,96],[1,2,
+4,8,16,32,64,72,80,96],[4,16,32,64,72,-80,96],[4,8,16,32,64,-80,96],[16,
+32,64,-68,-72,96],[1,2,4,6,8,16,20,24,32,96],[32,64],[96,120],[32,64,65,
+66,72,88],[1,2,8,32,33,40,64,66,72,88],[1,2,4,8,32,33,34,36,40,64,68,72,
+88],[1,2,8,16,32,48,64,80],[1,2,6,8,24,32,33,34,40,56,64],[64,96,120],[1,
+2,8,32,96,120],[16,32,64,96,112],[32,64,66,72,88],[1,2,4,8,32,34,36,40,64,
+68,72,88],[1,2,8,16,32,48,64,80],[1,2,6,8,24,32,34,40,56,64],[64,96,120],
+[8,32,64,96,120],[1,2,4,8,32,96,120],[1,8,32,96,120],[16,32,64,96,112],
+[32,64,68,72,88],[1,2,4,8,32,36,40,64,72,88],[1,2,4,8,16,32,48,64,80],[1,
+2,4,6,8,24,32,36,40,56,64],[64,65,66,72,120],[1,8,64,66,72,120],[1,2,4,8,
+64,68,72,120],[1,2,6,8,24,120],[8,16,64,80,112],[1,2,8,32,40,64,96],[1,2,
+6,8,24,56,64],[64,96,112],[1,2,8,16,32,96,112],[32,96],[32,64,80],[1,2,8,
+16,32,48,64],[64,65,66,72,96],[1,8,32,64,66,72,96],[1,2,4,8,32,64,68,72,
+96],[8,16,32,64,80,96],[1,2,6,8,24,32,96],[32,64],[112],[64,80],[1,2,8,16,
+32,-48,64],[64,112],[2,16,64,112],[4,16,64,112],[1,2,8,16,112],[32,64,96],
+[1,2,8,16,-48,64],[64,96],[1,2,8,16,32,96],[32,64],[124],[1,2,4,8,-9,-10,
+-12,-24,-25,-26,-28,-56,-60,64],[64,65,66,68,72,-76,-88,96],[1,8,32,64,66,
+68,-72,-88,96],[1,2,4,8,32,64,68,-72,-88,96],[1,4,8,32,64,-72,-88,96],[8,
+16,32,64,-65,-66,-68,-80,-81,-84,96],[1,2,4,8,9,16,17,24,32,64,66,68,80,
+84,96],[1,2,4,8,9,10,12,16,17,18,20,24,32,64,68,80,84,96],[1,2,4,8,9,12,
+16,17,20,24,32,64,80,96],[1,2,4,8,24,32,64,65,66,68,96],[1,2,4,8,9,10,12,
+24,25,26,28,32,96],[32,64],[116],[84],[1,2,4,8,-9,-10,-12,16,-17,-18,-20,
+32,-33,-34,-36,-40,-48,-52,64],[64,100],[32,64,96],[1,2,4,-36,64],[64,65,
+66,68,72,80,96],[1,8,32,64,68,-80,96],[1,2,4,8,16,32,64,68,-80,96],[1,4,8,
+32,64,-72,-80,96],[8,32,64,-68,80,96],[1,4,8,16,32,64,-65,-66,-68,96],[1,
+2,4,8,9,10,12,16,17,18,20,32,96],[32,64],[96,112],[32,64,80],[1,2,4,8,16,
+40,-48,80],[1,2,4,8,16,32,-48,64,-68,80],[1,2,4,8,16,32,-48,64],[64,96,
+112],[1,2,4,8,16,32,112],[16,32,64,-96,112],[32,64,96],[32,64,-72,80],[1,
+2,4,8,16,32,48,64,68,80],[1,2,4,8,16,32,-48,64],[64,96,112],[8,16,32,64,
+112],[1,2,4,8,16,32,112],[1,8,16,32,64,112],[16,32,64,-96,112],[32,64,96],
+[32,64,80],[1,2,4,8,16,48,80],[1,2,4,8,16,32,-48,64],[64,96,112],[8,16,32,
+64,112],[1,2,4,8,16,32,112],[16,32,64,-96,112],[32,64,96],[32,64,-72,80],
+[1,2,4,8,16,32,48,64,80],[1,2,4,8,16,32,-48,64],[64,96,112],[1,2,4,8,16,
+32,96,112],[32,64,96],[32,64,-65,-68,80],[1,2,4,8,16,32,48,64,68,80],[1,2,
+4,8,16,32,33,48,64,80],[1,2,4,8,16,32,-48,64],[64,65,66,68,72,80,112],[1,
+16,64,66,68,72,80,112],[1,2,16,64,68,72,80,112],[1,2,4,8,16,64,72,80,112],
+[1,2,8,16,64,65,66,68,80,112],[1,2,4,8,16,48,64,66,68,80,112],[1,2,4,8,9,
+16,48,64,68,80,112],[1,2,4,8,9,10,12,16,48,112],[16,32,64,96],[1,2,4,8,16,
+48,64],[64,96],[1,2,4,8,16,32,96],[32,64],[124],[1,2,4,-12,16,-17,-18,-20,
+-28,-48,-49,-50,-52,-60,64],[64,108],[1,4,32,108],[4,32,64,76],[1,2,4,-12,
+16,-17,-18,-20,32,-33,-34,-36,-44,64],[64,65,66,68,-76,80,-81,-82,-84,96],
+[1,16,32,64,66,68,-80,96],[1,2,4,16,32,64,68,-80,-84,96],[1,4,8,16,32,64,
+-72,-80,-88,96],[1,2,4,12,16,17,18,20,32,64,80,96],[16,32,64,-65,-66,-68,
+-76,96],[1,2,4,16,17,32,64,66,68,76,96],[1,2,4,16,17,18,20,32,64,68,76,96],
+[1,2,4,8,16,17,20,24,32,64,72,96],[1,2,4,12,16,17,18,20,28,32,96],[32,64],
+[124],[64,92],[1,2,4,-12,16,-18,-20,-28,32,-33,-34,-36,-44,-48,-50,-52,
+-60,64],[64,120],[112],[8,16,64,88],[1,2,4,8,-12,16,-18,-20,-24,32,-40,
+-48,-56,64],[64,108],[8,104],[1,4,108],[4,64,76],[1,2,4,-12,16,-18,-20,32,
+-34,-36,-44,64],[64,65,66,68,-76,80,-82,-84,96],[1,4,16,32,64,66,68,-76,
+80,-84,96],[1,2,4,16,32,64,68,-76,-80,-84,96],[4,8,32,64,-72,-80,-88,96],
+[1,2,4,12,16,32,64,80,96],[4,16,32,64,-66,-68,-76,96],[1,2,4,12,16,18,20,
+32,64,68,76,96],[1,2,4,8,12,16,20,24,32,64,72,96],[1,2,4,12,16,18,20,28,
+32,96],[32,64],[124],[32,64,92],[1,2,4,-12,-28,32,-33,-34,-36,-44,-60,64],
+[64,124],[4,32,124],[8,64,120],[4,32,64,92],[1,2,4,-12,-28,32,-34,-36,-44,
+-60,64],[64,124],[1,4,64,124],[1,2,4,124],[4,8,64,120],[1,2,4,-12,-28,-60,
+64],[64,120],[1,8,32,120],[16,112],[8,32,64,88],[1,2,4,8,-12,-24,32,-40,
+-56,64],[64,65,66,68,-76,96],[1,32,64,66,68,96],[1,2,4,32,64,68,-76,96],
+[1,4,8,32,64,-72,-88,96],[1,2,4,12,16,20,32,64,80,96],[1,2,4,12,28,32,96],
+[32,64],[120],[88],[1,2,4,8,-12,16,-24,32,-33,-34,-36,-40,-48,-56,64],[64,
+112],[1,2,4,16,-48,64],[64,104],[64,96],[8,64,72],[1,2,4,8,16,32,-40,64],
+[64,65,66,68,72,80,96],[1,32,64,72,96],[1,2,4,8,16,32,64,72,80,96],[1,4,8,
+16,32,64,-72,80,96],[1,8,32,64,-68,-80,96],[1,8,16,32,64,-72,96],[1,2,4,8,
+12,16,24,32,96],[32,64],[96,112],[32,64,80],[1,2,4,16,32,-48,64,80],[1,2,
+4,16,32,-48,64,80],[1,2,4,8,16,32,-40,-48,64,-72,80],[1,2,4,16,32,-48,64],
+[64,96,112],[1,2,4,16,32,96,112],[32,64,96],[32,64,80],[1,2,4,16,32,-48,
+64],[64,96,112],[16,32,64,112],[1,2,4,16,32,96,112],[1,8,16,32,64,96,112],
+[32,64,96],[32,64,80],[1,2,4,8,16,40,-48,80],[1,2,4,16,32,-48,64],[64,96,
+112],[16,32,64,96,112],[1,2,4,8,16,32,96,112],[1,16,32,-96,112],[32,64,96],
+[32,64,-72,80],[1,2,4,8,16,32,48,64,80],[1,2,4,8,16,32,-48,64],[64,65,66,
+68,80,112],[1,16,64,66,68,80,112],[1,2,4,16,64,68,80,112],[1,4,8,16,64,72,
+80,112],[1,2,4,12,16,48,112],[16,32,64,96],[1,2,4,16,48,64],[64,96],[1,2,
+4,16,32,96],[32,64],[120],[1,2,4,8,16,-17,-18,-20,-24,-48,-56,64],[64,104],
+[1,2,4,8,16,32,-40,64],[64,72,80,96],[1,16,32,64,-80,96],[1,2,4,8,16,32,
+64,-80,96],[1,4,8,16,32,64,-80,96],[1,8,16,32,64,-80,96],[16,32,64,-65,
+-72,96],[1,2,4,8,16,17,18,20,24,32,96],[32,64],[120],[32,64,88],[1,2,4,8,
+-24,32,-33,-34,-36,-40,-56,64],[64,120],[16,64,112],[8,32,64,88],[1,2,4,8,
+-24,32,-34,-36,-40,-56,64],[64,120],[8,32,64,120],[16,64,112],[8,32,64,88],
+[1,2,4,8,-24,32,-36,-40,-56,64],[64,120],[1,8,64,120],[1,2,8,64,120],[1,2,
+4,8,120],[8,16,64,112],[1,2,4,8,-24,-56,64],[64,112],[96],[16,64,80],[1,2,
+4,8,16,32,-48,64],[64,65,66,68,72,96],[1,32,64,96],[1,2,8,32,64,96],[1,2,
+4,8,32,64,72,96],[1,8,16,32,64,-80,96],[1,2,4,8,24,32,96],[32,64],[112],
+[80],[1,2,4,8,16,32,-48,64],[64,112],[16,64,112],[1,16,64,112],[1,2,16,64,
+112],[1,2,4,8,16,112],[32,64,96],[1,2,4,8,16,-48,64],[64,96],[1,2,4,8,16,
+32,96],[32,64]]
+]):
+#
+#map(x->assign(posets[x],cat(`posets/`,x)),
+#  ['('J')', '('Lattices')', '('Posets')', '('W')', '('antichains')',
+#   '('atomic')', '('autgroup')', '('canon')', '('chain')', '('chains')',
+#   '('char_poly')', '('closure')', '('connected')', '('covers')',
+#   '('distributive')', '('dual')', '('eulerian')', '('extensions')',
+#   '('f_poly')', '('filter')', '('flag_f')', '('flag_h')', '('h_poly')',
+#   '('ideals')', '('isom')', '('lattice')', '('meet')', '('mobius')',
+#   '('modular')', '('omega')', '('plot_poset')', '('rand_poset')',
+#   '('ranked')', '('rm_isom')', '('strongcomps')', '('subinterval')',
+#   '('subposet')', '('zeta')']):
+##
+
+ordpolyproc :=  ['('J')', '('Lattices')', '('Posets')', '('W')', '('antichains')',
+   '('atomic')', '('autgroup')', '('canon')', '('chain')', '('chains')',
+   '('char_poly')', '('closure')', '('connected')', '('covers')',
+   '('distributive')', '('dual')', '('eulerian')', '('extensions')',
+   '('f_poly')', '('filter')', '('flag_f')', '('flag_h')', '('h_poly')',
+   '('ideals')', '('isom')', '('lattice')', '('meet')', '('mobius')',
+   '('modular')', '('omega')', '('plot_poset')', '('rand_poset')',
+   '('ranked')', '('rm_isom')', '('strongcomps')', '('subinterval')',
+   '('subposet')', '('zeta')'];
+ 
+for xxxx in ordpolyproc do
+    posets[xxxx] := cat(`posets/`, xxxx);
+end do;
+
+assign('`&*`'=`posets/&*`,'`&+`'=`posets/&+`,'`&u`'=`posets/&u`);
+printf(`posets 2.4v loaded. `);
+printf(`Run 'withposets()' to use abbreviated names.\n`);
