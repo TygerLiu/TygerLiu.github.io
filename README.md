@@ -2,4 +2,4 @@
 
 **My howepage:** https://tygerliu.github.io
 
-![](https://komarev.com/ghpvc/?username=TygerLiu&style=flat)
+![](https://komarev.com/ghpvc/?username=TygerLiu&style=flat&color=blueviolet)
